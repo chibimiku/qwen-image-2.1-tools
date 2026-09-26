@@ -11,7 +11,8 @@ Both actions run against a fresh SSH connection (no state kept between calls):
 With fwd, the remote 127.0.0.1:6006 is reachable from the script as
 http://127.0.0.1:<localport>. The script runs in-process via exec().
 
-Credentials: tools/autodl2.env (or AUTODL_* env vars).
+Credentials: tools/autodl.env（推荐）或 tools/autodl2.env（旧名），也可用 AUTODL_* 环境变量。
+             tools/deploy_service.py --save-env 生成的就是 autodl.env。
 """
 import os
 import pathlib
@@ -23,13 +24,17 @@ import time
 
 import paramiko
 
-ENVF = pathlib.Path(__file__).with_name("autodl2.env")
+# 两个都读，后者覆盖前者（保留旧名兼容；新流程统一写 autodl.env）
+ENV_NAMES = ("autodl.env", "autodl2.env")
 CFG = {"host": None, "port": None, "user": None, "password": None}
 
 
 def load_env():
-    if ENVF.exists():
-        for raw in ENVF.read_text(encoding="utf-8").splitlines():
+    for name in ENV_NAMES:
+        envf = pathlib.Path(__file__).with_name(name)
+        if not envf.exists():
+            continue
+        for raw in envf.read_text(encoding="utf-8").splitlines():
             line = raw.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue

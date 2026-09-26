@@ -22,6 +22,7 @@
   python tools/deploy_service.py --force          # 连没变化的也重传
   python tools/deploy_service.py --force-env      # 连 qwen_env.sh 也覆盖（会换掉远端 key！）
   python tools/deploy_service.py --host H --port P --password PW
+  python tools/deploy_service.py --save-env       # 把这次的凭据写进 tools/autodl.env（git-ignored）
 
 凭据优先取命令行参数，其次环境变量 AUTODL_*，最后 tools/autodl.env（git-ignored）。
 """
@@ -123,6 +124,8 @@ def main() -> int:
     ap.add_argument("--force", action="store_true", help="连没变化的也重传")
     ap.add_argument("--force-env", action="store_true",
                     help="覆盖远端的 qwen_env.sh（会换掉实例上的真实 key，慎用）")
+    ap.add_argument("--save-env", action="store_true",
+                    help="把这次的连接信息写进 tools/autodl.env（该文件已被 gitignore）")
     args = ap.parse_args()
 
     env = load_env_file(ROOT / "tools" / "autodl.env")
@@ -138,7 +141,26 @@ def main() -> int:
         print("  AUTODL_PORT=12345")
         print("  AUTODL_USER=root")
         print("  AUTODL_PASS=...")
+        print()
+        print("或者一次性传进来并顺手存下（推荐给 agent）：")
+        print("  python tools/deploy_service.py --host H --port P --password PW --save-env")
         return 2
+
+    if args.save_env:
+        env_file = ROOT / "tools" / "autodl.env"
+        if env_file.exists() and not args.force:
+            print(f"{env_file.relative_to(ROOT)} 已存在，未覆盖（要覆盖加 --force）。")
+        else:
+            env_file.write_text(
+                "# 本机实例连接信息（git-ignored，不要提交）\n"
+                "# 由 tools/deploy_service.py --save-env 生成\n"
+                f"AUTODL_HOST={host}\n"
+                f"AUTODL_PORT={port}\n"
+                f"AUTODL_USER={user}\n"
+                f"AUTODL_PASS={password}\n",
+                encoding="utf-8",
+            )
+            print(f"已写入 {env_file.relative_to(ROOT)}（git-ignored，不会进仓库）")
 
     files = local_files()
     print(f"本地载荷：{len(files)} 个文件（来自 {SRC.relative_to(ROOT)}/）")

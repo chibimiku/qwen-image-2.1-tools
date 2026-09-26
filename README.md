@@ -12,6 +12,142 @@ Qwen-Image-2.1（7B DiT + Qwen3-VL 8B 编码器 + RGBA VAE）在 AutoDL 上的�
 
 ---
 
+## 部署（给 agent 的执行说明）
+
+> 目标：**跑完之后 `curl 127.0.0.1:6006/health` 返回 `"loaded": true`。**
+> 本节列出的每条命令都可直接执行。先读完「前置条件」再动手，缺东西要**先问用户**，别猜。
+
+### 前置条件
+
+| 需要什么 | 谁提供 | 没有的话 |
+|---|---|---|
+| 一台 AutoDL 实例，**显存 ≥ 40 GB**（实测 48G 卡能全 BF16 常驻） | 用户 | 停下来问用户要实例 |
+| 实例的 **SSH 域名 / 端口 / root 密码**（AutoDL 控制台 → 容器实例 → SSH 登录指令） | 用户 | 停下来问用户要 |
+| 本机 Python 依赖：`paramiko`（部署要）、`pillow` / `requests`（测试要） | `pip install paramiko pillow requests` | 直接装 |
+| 33 GB 磁盘放权重（AutoDL 上是 `/root/autodl-tmp`，系统盘只有 30 G，**不要放系统盘**） | 实例自带 | 见步骤 2 的说明 |
+
+> ⚠️ **权重不在这个仓库里**。仓库只有服务端（约 0.9 MB），
+> 33 GB 的模型权重由步骤 2 的 `bootstrap.sh` 自己下载（20~40 分钟）。
+> 如果用户已经有一台装好权重的实例，跳过下载即可，脚本会自动检测。
+
+### 步骤 0 · 确认在正确的位置
+
+```bash
+cd <repo>            # 仓库根目录，能看到 service/ 和 tools/
+python -c "import sys; print(sys.version)"   # 3.10+ 即可
+```
+
+### 步骤 1 · 传服务端（本机执行，约 3 秒）
+
+```bash
+pip install paramiko
+
+# 首次：带上连接信息，顺手存进 tools/autodl.env（该文件 git-ignored，不会进仓库）
+python tools/deploy_service.py \
+  --host <实例域名> --port <端口> --password '<root 密码>' --save-env
+
+# 之后（凭据已在 tools/autodl.env）：一条命令，幂等，只传有变化的
+python tools/deploy_service.py
+```
+
+**这一步做到什么**：把 `service/` 整棵树镜像到实例的 `/root/qwen-image-2.1/`。
+15 个文件，比 md5 跳过没变的。
+
+**不要**加 `--force-env`：实例上的 `qwen_env.sh` 存着**真实 API Key**，
+仓库里那份是 `CHANGE_ME` 占位符，覆盖过去会让服务变成 401。
+
+期望输出结尾：
+
+```
+完成：传输 N / 跳过(相同) M / 保护 1
+提示：远端 qwen_env.sh 保持原样，实例上的 key 没被被动过。
+```
+
+### 步骤 2 · 装依赖 + 下权重 + 起服务（实例上执行，20~40 分钟）
+
+```bash
+ssh -p <端口> root@<实例域名> 'bash /root/qwen-image-2.1/scripts/bootstrap.sh'
+```
+
+这一步是**幂等**的，会依次做 5 件事：检查系统信息 → 装 pip 依赖 → 校验/下载权重
+→ `serve.sh start` → 打印公网入口。
+
+几个必须知道的点：
+
+- **`python-multipart` 必须装上**，否则上传参考图的请求全部 400。`bootstrap.sh` 里已经包含。
+- **`QWEN_TILE_VAE=1` 是硬需求**：不开的话 2048² 会崩在 VAE 上采样层。
+  `qwen_env.sh` 与 `serve.sh` 都设了默认 1 —— 所以**永远不要绕过 `serve.sh` 直接
+  `python service/server.py`**。
+- 长时间下载建议挂后台，别让 SSH 断掉：
+  ```bash
+  ssh -p <端口> root@<实例域名> \
+    'nohup bash /root/qwen-image-2.1/scripts/bootstrap.sh > /root/bootstrap.log 2>&1 & echo started'
+  # 看进度
+  ssh -p <端口> root@<实例域名> 'tail -20 /root/bootstrap.log'
+  ```
+- 权重下到一半断了：`bash /root/qwen-image-2.1/scripts/watch_download.sh` 是看门狗，会自动重拉。
+
+> **没有 `ssh` 客户端 / 不方便交互输密码？** 用仓库自带的 SSH 驱动代替上一条命令，
+> 凭据同样从 `tools/autodl.env` 读：
+>
+> ```bash
+> python tools/autodl_run.py "bash /root/qwen-image-2.1/scripts/bootstrap.sh"
+> ```
+>
+> 但这条是**前台执行**，SSH 一断就跑不完。要挂后台：
+>
+> ```bash
+> python tools/autodl_run.py "nohup bash /root/qwen-image-2.1/scripts/bootstrap.sh > /root/bootstrap.log 2>&1 & echo started"
+> python tools/autodl_run.py "tail -20 /root/bootstrap.log"
+> ```
+
+### 步骤 3 · 验证（必须做，别跳过）
+
+```bash
+# 3.1 服务活了吗（真实进度的唯一可信判据）
+ssh -p <端口> root@<实例域名> "curl -s localhost:6006/health"
+
+# 3.2 仓库提交的版本 == 实例上跑的版本
+python tools/check_deploy.py
+
+# 3.3 出图自测：1024²/20 步，约 11 秒
+python tools/autodl_ssh.py run \
+  "curl -s -X POST localhost:6006/v1/images/generations \
+     -H 'Authorization: Bearer <key>' \
+     -F prompt='a red cube on a white table' \
+     -F num_inference_steps=20 -F width=1024 -F height=1024 | head -c 200"
+```
+
+**验收标准**：
+
+| 检查 | 通过的样子 |
+|---|---|
+| 3.1 | `{"status":"ok",...,"loaded":true,...}` |
+| 3.2 | `一致 15 / 不一致 0 / 仓库缺 0 / 远端无 0` |
+| 3.3 | 返回 JSON，里面有 `"b64_json"` |
+
+`<key>` 从哪来：实例上 `grep QWEN_API_KEY /root/qwen-image-2.1/qwen_env.sh`。
+WebUI 则直接开 `http://<实例公网入口>/`，页面上输一次 key 就换成 HttpOnly Cookie 会话。
+
+### 卡住了怎么办
+
+| 症状 | 原因 | 处理 |
+|---|---|---|
+| `缺少连接信息` | 没给 `--host/--port/--password`，也没有 `tools/autodl.env` | 回到步骤 1，加 `--save-env` |
+| `Authentication failed` | 密码错，或本机 OpenSSH 太新而服务端太老 | 工具已内置 RSA-SHA2 回退；仍失败就问用户核对密码 |
+| 上传参考图报 **400** | 实例缺 `python-multipart` | `pip install python-multipart` 后重启服务 |
+| `/health` 里 `loaded: false` | 权重还在加载（约 2 分钟）或是下载没完成 | 等；`tail /root/qwen-image-2.1/logs/service.log` |
+| 2048² CUDA OOM | 没开分块 VAE 解码 | 确认用 `serve.sh` 启动，且 `qwen_env.sh` 里 `QWEN_TILE_VAE=1` |
+| 所有 `/v1/*` 都 401 | 步骤 1 误用了 `--force-env`，把 key 覆盖成占位符 | 从备份或用户处取回 key，写回实例 `qwen_env.sh` 后重启 |
+| `check_deploy.py` 报 `一致*` | `qwen_env.sh` 只有 key 值不同 | **正常**，这是设计使然 |
+
+### 更多细节
+
+每个文件映射到哪、为什么这么定、`qwen_env.sh` 的占位符策略 —— 见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
+接口定义见 **[docs/API.md](docs/API.md)**。
+
+---
+
 ## 目录结构
 
 | 目录 | 内容 |
@@ -27,42 +163,33 @@ Qwen-Image-2.1（7B DiT + Qwen3-VL 8B 编码器 + RGBA VAE）在 AutoDL 上的�
 
 ---
 
-## 部署服务端（不含模型）
+## 实例上怎么操作（已部署好之后）
 
 ```bash
-# 1) 传服务端：service/ → /root/qwen-image-2.1/（幂等，只传有变化的；不碰远端 qwen_env.sh）
-python tools/deploy_service.py --dry-run     # 先看会传什么
-python tools/deploy_service.py
+# 启停
+bash /root/qwen-image-2.1/scripts/serve.sh start|stop|restart|status|fg
 
-# 2) 实例上装依赖 + 下权重 + 起服务（约 20~40 分钟，主要是下 33GB 权重）
-ssh -p <端口> root@<实例域名> 'bash /root/qwen-image-2.1/scripts/bootstrap.sh'
+# 环境变量（端口、key、tile_vae、offload 都在这里）
+source /root/qwen-image-2.1/qwen_env.sh
 
-# 3) 对账：逐文件 md5 比对"实例上跑的"与"仓库提交的"
-python tools/check_deploy.py
+# 看公网入口
+bash /root/qwen-image-2.1/scripts/show_url.sh
+
+# 日志
+tail -f /root/qwen-image-2.1/logs/service.log
 ```
-
-细节（每个文件去哪、为什么 `QWEN_TILE_VAE=1` 是硬需求、key 占位符怎么处理）见
-**[docs/DEPLOY.md](docs/DEPLOY.md)**。
 
 ---
 
-## 快速开始
+## 本机快速开始
 
 ```bash
-# 1. 起隧道（把远端 6006 映射到本地 16008）
+# 起隧道（把远端 6006 映射到本地 16006）
 python tools/run_tunnel.py <某个测试脚本>.py
 
-# 2. 或者直接看服务状态
+# 或者直接看服务状态
 python tools/autodl_ssh.py health          # 读 tools/autodl.env 里的实例信息
 python tools/autodl_ssh.py run "nvidia-smi"
-```
-
-服务端（实例内）：
-
-```bash
-source /root/qwen-image-2.1/qwen_env.sh
-bash /root/qwen-image-2.1/scripts/serve.sh start
-curl -s localhost:6006/health | python -m json.tool
 ```
 
 ---

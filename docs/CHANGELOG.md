@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## 2026-09-26（下午 · 第十八批）· README 写成 agent 可执行的部署说明
+
+### 用户要求
+"更新 README，告诉 agent 拉下代码之后应该怎么部署。"
+
+### README 新增「部署（给 agent 的执行说明）」
+
+按"一个刚 clone 下来、什么都不知道的 agent 照着敲就能通"来写的：
+
+- **先讲清前置条件**：≥40 GB 显存的实例、SSH 域名/端口/密码从哪来、缺了要**先问用户别猜**、
+  权重不在仓库里（33 GB 由步骤 2 自己下，且不能放系统盘）。
+- **步骤 0 定位** → **步骤 1 传服务端（本机 3 秒）** → **步骤 2 装依赖+下权重+起服务
+  （实例上 20~40 分钟）** → **步骤 3 验证**。
+- **每条命令都标了在哪台机器上跑**，并给期望输出（例如 `完成：传输 N / 跳过(相同) M / 保护 1`）。
+- **验收标准做成表格**：`/health` 要 `loaded:true`、`check_deploy.py` 要 15/15、
+  出图要返回 `b64_json`。
+- **排障表**：401、400、OOM、`Authentication failed`、`loaded:false`、
+  `一致*` 分别对应的原因与处理。
+- 明确三条**禁令**：不要 `--force-env`（会覆盖实例真实 key）、
+  不要绕过 `serve.sh` 直接 `python service/server.py`（`QWEN_TILE_VAE` 会退化）、
+  不要把权重放系统盘。
+
+### 配套的三处改动（否则 README 里的命令跑不通）
+
+1. **`tools/deploy_service.py --save-env`**：把这次的 host/port/password 写进
+   `tools/autodl.env`（git-ignored），之后一条命令即可部署。
+   文件已存在时**拒绝覆盖**（除非 `--force`），免得把别人的真实凭据冲掉。
+2. **凭据读取统一**：`tools/autodl_ssh.py` 原来只读 `tools/autodl2.env`，
+   而 `autodl_run.py` 读 `autodl.env` —— 存了一份另一个工具不认。
+   现在两个文件名都读（后者覆盖前者，保留旧名兼容），`autodl_run.py` 与
+   `check_deploy.py` 也一并走同一份。
+3. README 后面补「实例上怎么操作（已部署好之后）」与「本机快速开始」两节，
+   把 `serve.sh` 启停、`show_url.sh`、日志位置、隧道用法集中列出。
+
+### 实测
+
+README 步骤 3.3 **原样执行通过**：
+`a red cube on a white table`，1024²/20 步，返回含 `"b64_json"` 的 JSON。
+`python tools/autodl_ssh.py health` → `"loaded":true`。
+
+---
+
 ## 2026-09-26（下午 · 第十七批）· 部署资产归一 + 两个部署工具（用户追问触发）
 
 ### 用户问题
