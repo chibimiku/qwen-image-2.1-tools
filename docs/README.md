@@ -48,7 +48,7 @@ python -c "from modelscope import snapshot_download; \
 ```
 
 坑：ModelScope 的续传是**整文件粒度**的，中途断流会从 0 重下那个分片。
-`remote/scripts/watch_download.sh` 是看门狗，掉线自动重拉。
+`service/scripts/watch_download.sh` 是看门狗，掉线自动重拉。
 
 ---
 
@@ -209,7 +209,8 @@ python tools/autodl_ssh.py fwd <本地脚本.py>       # 起转发并跑脚本�
 
 - **测试产物一律进 `test-data/`**，不要散落在工作区其他地方。
 - 新脚本放 `tools/`，用 `import config as C` 取路径（`C.TEST_DATA` / `C.INPUT_EDIT` / `C.REPORT` / `C.REGIONS`）。
-- 给实例用的 shell 脚本放 `remote/scripts/`。
+- 给实例用的 shell 脚本放 `service/scripts/`（`service/` 整体就是部署载荷，结构与实例
+  `/root/qwen-image-2.1/` 一致，见 [DEPLOY.md](DEPLOY.md)）。只有一次性探测/实验脚本放 `remote/scripts/`。
 - HTML 报告放 `reports/`，保持单文件自包含（图片 base64 内嵌），方便外发。
 - 命名：`<阶段>_<对象>_<变体>.png`，例如 `poseA_thighs_open_11.png`、`nsfw_L1_open_pose.png`。
 

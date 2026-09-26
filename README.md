@@ -16,13 +16,33 @@ Qwen-Image-2.1（7B DiT + Qwen3-VL 8B 编码器 + RGBA VAE）在 AutoDL 上的�
 
 | 目录 | 内容 |
 |---|---|
-| `docs/` | **[docs/README.md](docs/README.md) 总说明** · [API.md](docs/API.md) 接口定义 · [MEASUREMENTS.md](docs/MEASUREMENTS.md) 全部实测数据 · [SHARE.md](docs/SHARE.md) **镜像保存与分享** · [CASE-dress-shell.md](docs/CASE-dress-shell.md) 专项案例 · [CHANGELOG.md](docs/CHANGELOG.md) 改动记录 |
+| `docs/` | **[docs/README.md](docs/README.md) 总说明** · [DEPLOY.md](docs/DEPLOY.md) **部署（目录映射 + 三步）** · [API.md](docs/API.md) 接口定义 · [MEASUREMENTS.md](docs/MEASUREMENTS.md) 全部实测数据 · [SHARE.md](docs/SHARE.md) **镜像保存与分享** · [CASE-dress-shell.md](docs/CASE-dress-shell.md) 专项案例 · [CHANGELOG.md](docs/CHANGELOG.md) 改动记录 |
 | `docs/upstream/` | **官方文档本地副本**（GitHub README / HF 模型卡 / ModelScope / LICENSE / diffusers 管线源码），索引见 [docs/upstream/INDEX.md](docs/upstream/INDEX.md)。同步：`python tools/sync_upstream_docs.py` |
-| `service/` | `server.py` HTTP 服务 · `client.py` 调试客户端 · `face_fix.py` 人脸回贴 · `bench.py` 跑分 · `inspect_ckpt.py` 权重校验 · `qwen_env.sh` 环境变量 |
-| `remote/scripts/` | 在实例上用的运维脚本：`serve.sh` 启停 · `download_model.sh` 下权重 · `bootstrap.sh` 一键恢复 · `watch_download.sh` 断流续传 · 以及部署期用过的一次性探测脚本（`_*.sh`） |
-| `tools/` | 测试与报告生成脚本（本机跑，经 SSH 隧道调用远端服务） |
-| `test-data/` | 全部测试产物：输入图、每轮输出、量化 JSON、接触表 |
-| `reports/` | 生成的 HTML 报告（单文件、图片内嵌，可直接外发） |
+| `service/` | **= 部署载荷**，结构与实例 `/root/qwen-image-2.1/` 一一对应。`server.py` HTTP 服务 · `client.py` 调试客户端 · `face_fix.py` 人脸回贴 · `ui/` 控制台 · `scripts/` 启停与环境脚本 |
+| `service/scripts/` | `serve.sh` 启停 · `bootstrap.sh` 一键恢复 · `qwen_env.sh` 环境变量 · `download_model.sh` 下权重 · `bench.py` / `inspect_ckpt.py` / `show_url.sh` |
+| `tools/` | 本机工具：`deploy_service.py` **部署** · `check_deploy.py` **对账** · `autodl_run.py` / `autodl_ssh.py` SSH 驱动 · 测试与报告生成 · `scan_secrets.py` 提交前扫描 |
+| `remote/scripts/` | 只在实例上跑的一次性脚本：部署期探测、实验、巡检（`_*.sh`） |
+| `test-data/` | 全部测试产物：输入图、每轮输出、量化 JSON、接触表（体积大，未入库） |
+| `reports/` | 生成的 HTML 报告（单文件、图片内嵌，可直接外发）（未入库） |
+
+---
+
+## 部署服务端（不含模型）
+
+```bash
+# 1) 传服务端：service/ → /root/qwen-image-2.1/（幂等，只传有变化的；不碰远端 qwen_env.sh）
+python tools/deploy_service.py --dry-run     # 先看会传什么
+python tools/deploy_service.py
+
+# 2) 实例上装依赖 + 下权重 + 起服务（约 20~40 分钟，主要是下 33GB 权重）
+ssh -p <端口> root@<实例域名> 'bash /root/qwen-image-2.1/scripts/bootstrap.sh'
+
+# 3) 对账：逐文件 md5 比对"实例上跑的"与"仓库提交的"
+python tools/check_deploy.py
+```
+
+细节（每个文件去哪、为什么 `QWEN_TILE_VAE=1` 是硬需求、key 占位符怎么处理）见
+**[docs/DEPLOY.md](docs/DEPLOY.md)**。
 
 ---
 

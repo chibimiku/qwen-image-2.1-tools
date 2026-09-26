@@ -1,5 +1,58 @@
 # CHANGELOG
 
+## 2026-09-26（下午 · 第十七批）· 部署资产归一 + 两个部署工具（用户追问触发）
+
+### 用户问题
+"这个 tools 包含服务端部署的内容（不算模型，只是服务端的 server 等）了吗？"
+
+### 答案：当时不含。部署内容散在 `service/` 和 `remote/scripts/` 两处，而且**两处不一致**
+
+对账查出来的真实情况（`tools/check_deploy.py` 第一次运行）：
+
+| 问题 | 证据 |
+|---|---|
+| **同一份脚本存在两版且内容不同** | `remote/scripts/serve.sh` 缺 `QWEN_TILE_VAE` 兜底、缺鉴权状态打印；`remote/scripts/qwen_env.sh` 里 `QWEN_TILE_VAE` 默认还是 **0** |
+| 仓库里没有部署说明 | 没有任何文件回答"哪个本地文件对应实例上哪个路径" |
+| 仓库里没有部署工具 | 一直是手敲 `autodl_run.py --put`，逐个文件传，容易漏 |
+
+`QWEN_TILE_VAE=0` 那份尤其危险 —— 2048² 会直接崩在 VAE 上采样层，而它长得和权威版几乎一样。
+
+### 改动
+
+1. **`service/` 变成唯一部署载荷，结构与实例一一对应**：
+
+   ```
+   service/server.py           → /root/qwen-image-2.1/service/server.py
+   service/ui/index.html       → /root/qwen-image-2.1/service/ui/index.html
+   service/scripts/serve.sh    → /root/qwen-image-2.1/scripts/serve.sh
+   service/scripts/qwen_env.sh → /root/qwen-image-2.1/qwen_env.sh      ← 唯一提级
+   ```
+
+   一次性探测/实验脚本留在 `remote/scripts/`（`_*.sh`），不再放部署件。
+   删掉了 `remote/scripts/` 里那 6 个陈旧重复副本。
+
+2. **`tools/deploy_service.py`** —— 整树镜像部署：幂等（比 md5，只传有变化的）、
+   自动建目录、**默认保护远端的 `qwen_env.sh`**（那份存着真实 key，覆盖会导致 401），
+   要覆盖得显式 `--force-env`。支持 `--dry-run`。
+
+3. **`tools/check_deploy.py`** —— 逐文件对账，输出「一致 / 不一致 / 仓库缺 / 远端无」。
+   对 `qwen_env.sh` 做**语义比较**：去掉 `QWEN_API_KEY`/`QWEN_API_KEYS` 两行再比，
+   值不同但结构一致就标 `一致*`，不误报成漂移。
+
+4. **两者共用 `tools/deploy_manifest.py`** 的一份路径映射，杜绝"工具 A 认这个路径、
+   工具 B 认那个路径"的二次漂移。
+
+5. **新增 [DEPLOY.md](DEPLOY.md)**：目录映射表、依赖清单（强调 `python-multipart`
+   必须装，否则 multipart 全 400）、三步部署、四个部署期坑。
+
+### 实测
+
+- `python tools/deploy_service.py`：传输 1 / 跳过 13 / 保护 1（补上了缺失的 `face_fix.py`）
+- 再跑一次：传输 0 / 跳过 14 / 保护 1 —— **幂等成立**
+- `python tools/check_deploy.py`：**15/15 一致**（其中 `qwen_env.sh` 为 `一致*`）
+
+---
+
 ## 2026-09-26（下午 · 第十六批）· 参考图引用语法 + UI 核查 + 首次入库
 
 ### 用户提的三件事
