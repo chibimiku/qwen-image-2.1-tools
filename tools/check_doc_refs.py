@@ -32,11 +32,19 @@ EXPECT = {
     656: "calculate_dimensions",
     768: "torch.cat",
     666: "arange(8192)",
+    24: "How much you build is intent-branched",
+    26: "Attribute Disentanglement",
+    41: "Say what stays, without repainting it",
+    43: "Identity is the hardest invariant",
+    47: "Only what was asked",
+    51: "Write it as an instruction",
+    170: "Prompt Rewriting",
+    668: "has_neg_prompt",
     766: "latent_model_input = latents",
     768: "torch.cat",
 }
 
-REF = re.compile(r"([\w.-]+\.py):(\d+)")
+REF = re.compile(r"([\w.-]+\.(?:py|txt|md|html|json)):(\d+)")
 
 
 def main() -> int:

@@ -74,3 +74,16 @@ grep -in 'non-commercial\|commercial' qwen-image-2.1-LICENSE.txt | head
 ---
 
 重新同步：`python tools/sync_upstream_docs.py`
+
+### Prompt 改写模型（PE）的 system prompt
+
+官方把「prompt rewriting」列为最佳实践第一条（README「Prompt Rewriting」）。
+这两个 9B checkpoint 各自带一份 system prompt，是**官方的改写方法论原文**，
+对"怎么把口语指令写成模型吃得准的指令"很有参考价值 —— docs/PROMPT-ANATOMY.md 引用了它。
+
+| 文件 | 用途 |
+|---|---|
+| prompt-rewriter-T2I-system-prompt.txt | 文生图改写（Qwen-Image-2.1-PE-T2I） |
+| prompt-rewriter-I2I-system-prompt.txt | 编辑改写（Qwen-Image-2.1-PE-I2I），含 Attribute Disentanglement 准则 |
+
+来源：https://huggingface.co/Qwen/Qwen-Image-2.1-PE-T2I/raw/main/system_prompt.txt（同 I2I）
