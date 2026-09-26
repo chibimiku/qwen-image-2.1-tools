@@ -804,9 +804,18 @@ function renderThumbs(){
   if (!note) return;
   if (files.length === 0){ note.textContent = ''; return; }
   const last = files[files.length - 1];
-  note.innerHTML = files.length === 1
-    ? `输出比例将跟随这张图（<b>${last.name}</b>），除非你在下面手填宽高`
-    : `<b>${files.length}</b> 张参考图 → 多主体合成；默认输出比例跟随<b>最后一张</b>（${last.name}）。想换比例就调整顺序或手填宽高。`;
+  // 指代一律用 imageN（prompt 里能引用的就是它），文件名只当辅助线索，太长就截断。
+  const label = i => `<b>&lt;image${i + 1}&gt;</b>`;
+  const brief = n => n.length > 22 ? n.slice(0, 12) + '…' + n.slice(-6) : n;
+  let txt = files.length === 1
+    ? `输出比例跟随 ${label(0)}（${brief(last.name)}），除非你在下面手填宽高`
+    : `<b>${files.length}</b> 张参考图 → 多主体合成；输出比例跟随<b>最后一张</b> `
+      + `${label(files.length - 1)}（${brief(last.name)}）。想换比例就调整顺序或手填宽高。`;
+  if (files.length > 1){
+    txt += '<br>编号即上传顺序：'
+         + files.map((f, i) => `${label(i)} = ${brief(f.name)}`).join(' · ');
+  }
+  note.innerHTML = txt;
   refSizeHint();
 }
 /* 官方多参考图约定：按上传顺序叫 <image1> <image2> ...（见 pipeline prompt_template_ti2i
