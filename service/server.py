@@ -105,6 +105,34 @@ _jobs: Dict[str, Dict[str, Any]] = {}
 _load_error: Optional[str] = None
 _peak_gib = 0.0
 _queue_depth = 0
+# 中止信号：request_id -> {"grace_until": ts or None, ...}
+# 放在这里而不是 task 里，是为了让 DELETE /v1/jobs/{id} 也能给"正在跑"的任务下中断指令。
+_cancel: Dict[str, Dict[str, Any]] = {}
+_CANCEL_GRACE_S = float(os.environ.get("QWEN_CANCEL_GRACE_S", "0"))   # 0 = 立刻中断
+
+
+class GenerationCancelled(Exception):
+    """在采样回调里抛出，用来真正中断一次正在运行的去噪。"""
+
+
+def request_cancel(request_id: str, grace_s: float = _CANCEL_GRACE_S) -> Dict[str, Any]:
+    """给某个 request_id 下中断指令；grace_s>0 表示"再跑 grace 秒就停"。"""
+    rec = _cancel.setdefault(request_id, {})
+    rec["at"] = time.time()
+    rec["grace_until"] = (time.time() + grace_s) if grace_s > 0 else None
+    return rec
+
+
+def cancel_requested(request_id: str) -> bool:
+    rec = _cancel.get(request_id)
+    if not rec:
+        return False
+    gu = rec.get("grace_until")
+    return True if gu is None else time.time() >= gu
+
+
+def clear_cancel(request_id: str) -> None:
+    _cancel.pop(request_id, None)
 
 
 # --------------------------------------------------------------------------- #
@@ -629,6 +657,9 @@ _MAX_PROGRESS = 40
 
 def _new_progress(rid: Optional[str], total_steps: int) -> Dict[str, Any]:
     rid = rid or ("req_" + uuid.uuid4().hex[:12])
+    # 每次开始新请求都要清掉这个 request_id 上的中断信号。
+    # 不清的话：取消过 A，再用同一个 request_id 跑 B，B 会在第一步就被误杀（实测过）。
+    clear_cancel(rid)
     p = {
         "request_id": rid, "status": "queued", "phase": "queued", "step": 0, "steps_done": 0,
         "total": int(max(1, total_steps)), "pct": 0.0,
@@ -763,6 +794,10 @@ async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
 
         def _on_step(pipe_ref=None, step=None, timestep=None, callback_kwargs=None, **_ignored):
             """diffusers 每步都会调；用它算真实步数、每步耗时与 ETA。"""
+            # 中断检查必须在 try 之外：回调里抛异常会穿过 pipeline 冒到 _call，
+            # 由 _generate 转成 499。放进下面那个 except Exception 就被吞了（实测）。
+            if cancel_requested(prog["request_id"]):
+                raise GenerationCancelled(prog["request_id"])
             try:
                 idx = int(step if step is not None else callback_kwargs.get("step", 0))
             except Exception:                                    # noqa: BLE001
@@ -835,6 +870,12 @@ async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
             prog["error"] = "CUDA OOM"
             torch.cuda.empty_cache()
             raise HTTPException(507, "CUDA OOM: lower width/height or set QWEN_OFFLOAD=model and restart")
+        except GenerationCancelled:
+            # 用户在采样回调里按了停止 —— 这次去噪真的中断了，不产出图。
+            prog["status"] = "canceled"
+            prog["phase"] = "canceled"
+            prog["error"] = "canceled by user"
+            raise HTTPException(499, "canceled by user")
         except Exception as exc:                                 # noqa: BLE001
             prog["status"] = "error"
             prog["error"] = f"{type(exc).__name__}: {exc}"
@@ -1325,7 +1366,14 @@ async def generations(request: Request):
     _check_auth(request)
     req = await _parse_gen_request(request)
     _queue_depth += 1
-    items = await _generate(req)
+    try:
+        items = await _generate(req)
+    except HTTPException as exc:
+        if exc.status_code == 499:
+            # 明确回 499：前端据此区分"被取消"和"真失败"，不要混成 500
+            return JSONResponse({"error": {"code": 499, "message": "canceled by user"}},
+                                status_code=499)
+        raise
     rid = items[0].get("timing", {}).get("request_id")
     # PNG 里已经带着同一份元数据（iTXt 的 qwen_image_21 键），响应里再塞一遍会让
     # base64 体积白白翻倍，所以这里只留一个精简版：给不想解 PNG 的调用方用。
@@ -1356,13 +1404,15 @@ async def _run_job(job_id: str, req: Dict[str, Any]):
         _jobs[job_id]["result"] = items
         _jobs[job_id]["status"] = "succeeded"
     except HTTPException as exc:
-        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["status"] = "canceled" if exc.status_code == 499 else "failed"
         _jobs[job_id]["error"] = {"code": exc.status_code, "message": exc.detail}
     except Exception as exc:                                   # noqa: BLE001
         _jobs[job_id]["status"] = "failed"
         _jobs[job_id]["error"] = {"code": 500, "message": f"{type(exc).__name__}: {exc}"}
     finally:
         _jobs[job_id]["finished_at"] = int(time.time())
+        # 任务结束就清掉中断信号，避免 request_id 复用时误伤下一次
+        clear_cancel(req.get("request_id") or job_id)
 
 
 @app.post("/v1/jobs", status_code=202, dependencies=[Depends(require_key)])
@@ -1408,14 +1458,40 @@ async def get_job(job_id: str, request: Request):
 
 
 @app.delete("/v1/jobs/{job_id}", dependencies=[Depends(require_key)])
-async def cancel_job(job_id: str, request: Request):
+async def cancel_job(job_id: str, request: Request, grace_s: float = None):
+    """取消任务。
+
+    - `queued`  → 直接置为 canceled（还没开始跑）
+    - `running` → 下中断指令，采样回调会在**下一步**抛异常真正停下来（返回 499）
+    - `grace_s` → 可选："再跑 grace 秒就停"（默认 0 = 立刻）
+    """
     _check_auth(request)
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(404, "job not found")
     if job["status"] == "queued":
         job["status"] = "canceled"
+        clear_cancel(job.get("request_id") or job_id)
+    elif job["status"] == "running":
+        request_cancel(job.get("request_id") or job_id,
+                       _CANCEL_GRACE_S if grace_s is None else float(grace_s))
+        job["cancel_requested"] = True
     return job
+
+
+@app.post("/v1/progress/{request_id}/cancel", dependencies=[Depends(require_key)])
+async def cancel_by_request(request_id: str, request: Request, grace_s: float = None):
+    """按 request_id 中断正在跑的那次生成（同步接口的取消方式）。
+
+    前端批量队列用的就是这条：当前任务记着 request_id，点"停止"就直接中断。
+    grace_s 给几秒的话，就是"只停队列、让当前任务跑完"——
+    但那种情况前端根本不用调这个接口，直接不发下一个就行。
+    """
+    _check_auth(request)
+    rec = request_cancel(request_id, _CANCEL_GRACE_S if grace_s is None else float(grace_s))
+    return {"ok": True, "request_id": request_id,
+            "grace_s": (_CANCEL_GRACE_S if grace_s is None else float(grace_s)),
+            "at": rec.get("at")}
 
 
 @app.get("/v1/jobs", dependencies=[Depends(require_key)])

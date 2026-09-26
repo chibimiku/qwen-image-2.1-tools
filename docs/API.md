@@ -218,8 +218,10 @@ curl -H "Cookie: $COOKIE" https://<入口>/v1/models
 | `width` / `height` | int | 2048×2048 | 显式尺寸 |
 | `size` | string | — | `"2048x2048"` 形式，优先级低于 width/height |
 | `aspect_ratio` | string | — | `1:1 4:3 3:4 3:2 2:3 16:9 9:16` |
-| `seed` | int | — | **不传就由服务端掷一个真随机种子**（0 ~ 2³¹-1），并把它回填到响应里 |
+| `seed` | int | — | **不传 / 空串 / 负数都算「没指定」**，由服务端掷一个真随机种子（0 ~ 2³¹-1），并**如实回填到响应**里 |
 | `transparent` | bool | false | true 时服务自动补官方透明提示词前缀，输出 RGBA |
+| `anatomy_check` | bool | false | 启用轻量人体结构复检；高置信度异常会自动换随机 seed 重跑 |
+| `anatomy_max_retries` | int | 2 | 人体复检失败后的最多重跑次数，范围 0~5 |
 | `output_format` | string | `png` | `png` / `jpeg` / `webp` |
 | `guidance_scale` | float | — | **别名**，服务端映射到真实的 `true_cfg_scale`（管线并没有叫 guidance_scale 的参数） |
 | `true_cfg_scale` | float | 1.0 | 管线真实参数名。`>1` 且同时给了 `negative_prompt` 才启用 CFG；官方默认 1.0 = 不用引导 |
@@ -246,6 +248,11 @@ curl -s -X POST "http://127.0.0.1:6006/v1/images/generations" \
 }
 ```
 
+启用人体复检时，每个图片项额外返回 `anatomy_check`。`passed=true` 表示最终通过；
+`attempts` 是实际生成次数；`history` 保留每次 seed、置信度与简短原因。达到重试上限仍失败时
+仍返回最后一张图，同时设置 `exhausted=true`，不会无限重跑。检测器不可用、输出不可解析或置信度不足时
+采用 fail-open（放行并在 `history.verdicts` 中说明），避免因为复检故障丢掉已经生成的图片。
+
 > **关于 `seed`（以前这里有个坑）**：不传 `seed` 时，服务端会自己掷一个真随机种子，
 > 用它建 `torch.Generator` 再去噪，然后**如实返回**这个值。
 > 所以「每次都不一样」和「拿到种子就能复现」同时成立：
@@ -255,6 +262,14 @@ curl -s -X POST "http://127.0.0.1:6006/v1/images/generations" \
 > 而 `seed=0` 与「不传 seed」**并不等价** —— 拿 0 去复现只会得到另一张随机图。
 >
 > `seed_given` 告诉你这个种子是你给的还是服务端掷的；多图时每张依次 +1。
+>
+> **负数 / 空串 = 没指定**：`seed < 0` 跟不传完全等价（服务端用 `_norm_seed()` 在解析
+> 请求时就抹平成 `None`）。以前负数会被原样塞进 `torch.Generator`，等于把一个**假的可复现
+> 参数**还给用户 —— 照抄那个负数并不能复现。JSON 与 multipart 两条分支都走同一个归一化。
+>
+> **WebUI 上出图后不再回填随机种子**：留空就一直随机（写回输入框会让人以为"填了 seed 就是
+> 固定出图"）。想复现某一张，点右侧历史里的**缩略图** —— 那一下才会把该图记录的 `seed`
+> 填进输入框。点「复用当前参数」也会带上 seed，日志里会写明"想重新随机就清空"。
 
 ### 3.3.1 参考图怎么在 prompt 里点名（`<image1>` / `<image2>` …）
 
@@ -428,6 +443,29 @@ curl -s -X POST "$BASE/v1/images/edits" \
 **实测**（1024×1024 / 20 步，4090-48G）：每步稳定在 0.50~0.51s，`eta_s` 从 13.2s 收敛到 0.5s，
 `total_s` 10.98s、`prep_s` 0.0s（权重常驻，准备开销可忽略）。
 
+### 3.9.1 `POST /v1/progress/{request_id}/cancel` — 中断正在跑的生成
+
+同步接口没有 job_id，所以取消按 `request_id` 走。前端批量队列的「立即中止当前」用的就是它。
+
+```bash
+curl -s -X POST "$BASE/v1/progress/$RID/cancel" -H "Authorization: Bearer $KEY"
+# {"ok":true,"request_id":"req_xxx","grace_s":0.0,"at":1790436826.9}
+```
+
+- 采样回调里挂了一个中断检查，**每步都会查**；命中就抛异常穿过管线，去噪当场停。
+- 被取消的请求返回 **HTTP 499**，body 是 `{"error":{"code":499,"message":"canceled by user"}}`，
+  进度状态变 `canceled`。**499 不是 500** —— 调用方据此区分"我取消了"和"真出错"。
+- 可选 `?grace_s=3`：再跑 3 秒才停（默认 0 = 下一步立刻停）。
+- **实测**：40 步的任务走到第 26 步按取消，**0.8 秒内**结束并回 499；第 3 步按则 0.5 秒内结束。
+- 中断信号在**开始新请求时自动清除**，所以同一个 `request_id` 可以复用
+  （不清的话复跑会在第一步被误杀 —— 这是实现时实测到的坑）。
+
+`DELETE /v1/jobs/{job_id}` 现在也能中断**运行中**的任务（此前只对 `queued` 有效），
+效果与上面等价，额外可选 `?grace_s=`。
+
+> **「只停队列」不需要调任何接口**：队列在客户端跑，不发下一个请求就是停队列。
+> 服务端只负责"连当前这个也停"，也就是上面这条。
+
 ### 3.10 会话（Cookie 登录，控制台用）
 
 | 方法 | 路径 | 说明 |
@@ -516,6 +554,9 @@ curl -sf -m 5 "$BASE/health" | jq -e '.status == "ok" and .checkpoint.present ==
 | `QWEN_SESSION_HOURS` | `24` | 会话 Cookie 有效期（小时） |
 | `QWEN_COOKIE_SECURE` | `1` | Cookie 是否带 `Secure`（公网是 https 保持 1；纯 http 调试设 0） |
 | `QWEN_MAX_QUEUE` | `64` | 异步队列上限 |
+| `QWEN_ANATOMY_MODEL` | `HuggingFaceTB/SmolVLM-500M-Instruct` | 可选人体复检模型；仅首次启用时按需加载 |
+| `QWEN_ANATOMY_DEVICE` | `cpu` | 复检模型运行设备；默认 CPU，不占主模型显存 |
+| `QWEN_ANATOMY_MIN_CONFIDENCE` | `0.78` | FAIL 达到该置信度才触发重跑，低于阈值按不确定放行 |
 
 ---
 

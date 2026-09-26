@@ -31,7 +31,10 @@
  input[type=range]{width:100%}
  .row{display:flex;gap:10px}.row>*{flex:1}
  .chk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg);margin:10px 0}
- .chk input{width:auto}
+ .chk input{width:auto;flex:0 0 auto;margin:3px 0 0}
+ /* 对钩后面的说明文字必须在同一行：label 是 flex 项，长文本在自身宽度内折行。
+    曾被下面的 `.chk{display:block}` 覆盖 → label 变 block，文字就掉到对钩下一行了。 */
+ .chk label{display:block;flex:1 1 auto;min-width:0;margin:0;font-size:13px;color:var(--fg);line-height:1.6}
  button{width:100%;margin-top:14px;padding:10px;border:0;border-radius:9px;background:var(--accent);
         color:#04121f;font-weight:700;font-size:14px;cursor:pointer}
  button:disabled{background:#2d333b;color:var(--dim);cursor:not-allowed}
@@ -51,7 +54,25 @@
         border:1px solid var(--line);background:#0b0f14;color:var(--accent);cursor:pointer;white-space:nowrap}
   .chip:hover{background:var(--accent);color:#06121f;border-color:var(--accent)}
   .chiphint{color:var(--dim);font-size:11px;line-height:1.6}
-  .chk{display:block}
+  .bstat{font-size:12px;color:var(--dim);margin:8px 0 4px}
+  .bstat b{color:var(--accent)}
+  .bbar{height:5px;background:#0b0f14;border-radius:3px;overflow:hidden;margin-bottom:8px}
+  .bbar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+  .blist{display:flex;flex-direction:column;gap:4px;max-height:280px;overflow:auto}
+  .bitem{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 6px;
+         border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .bitem i{font-style:normal;color:var(--dim);font-variant-numeric:tabular-nums;flex:0 0 22px}
+  .bitem .bt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bitem .bm{color:var(--dim);font-size:11px;white-space:nowrap}
+  .bitem img{width:30px;height:30px;object-fit:cover;border-radius:5px;flex:0 0 auto}
+  .bitem .bd{background:none;border:0;color:var(--accent);cursor:pointer;font-size:12px;padding:0 2px}
+  .bitem.run{border-color:var(--accent)}
+  .bitem.ok{opacity:.95}
+  .bitem.bad{border-color:var(--bad)}
+  .bitem.skip{opacity:.45;text-decoration:line-through}
+  .bsay{color:var(--dim);font-size:11px;margin-top:6px}
+  /* 这里原来有一条 `.chk{display:block}`，会覆盖上面的 flex —— 删掉。
+     它让每个选项的说明文字掉到对钩下面另起一行（就是"折到下一行"那个 bug）。 */
  .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
  .kpi .k{color:var(--dim);font-size:11px}.kpi .v{font-size:16px;font-weight:700}
@@ -162,6 +183,26 @@
       <label>提示词 prompt</label>
       <textarea id="prompt" placeholder="A neon shop sign that reads &quot;QWEN 2.1&quot;, rainy night, reflections on wet pavement"></textarea>
 
+      <details id="bwrap" style="margin-top:10px">
+        <summary style="cursor:pointer;color:var(--dim);font-size:12px">
+          批量输入（一行一个 prompt，自动排队）
+        </summary>
+        <div style="margin-top:8px">
+          <textarea id="batch" placeholder="一行一个，会被逐条排队生成&#10;例如：&#10;a red fox in snow, cinematic&#10;a blue whale above clouds, poster art"
+                    style="min-height:96px"></textarea>
+          <div class="row" style="margin-top:8px">
+            <button id="bstart" onclick="batchStart()">开始队列</button>
+            <button class="ghost" id="bstop" onclick="batchStop()" disabled>停止队列</button>
+          </div>
+          <div class="bstat" id="bstat"></div>
+          <div class="bbar"><i id="bbar"></i></div>
+          <div class="blist" id="blist"></div>
+          <div class="bsay" id="bsay">
+            停止队列 = 跑完当前这张就停；再点一次「停止队列」（或按「立即中止当前」）
+            = 连当前这张也中断。队列只在本页跑，关掉页面就没了。
+          </div>
+        </div>
+      </details>
       <div id="keywrap" style="display:none">
         <label>API Key（直连脚本排障用）<span id="keyhint" style="color:var(--dim)"></span></label>
         <input type="text" id="apikey" value="__QWEN_KEY_INJECT__" placeholder="服务端 QWEN_API_KEY 的值">
@@ -249,14 +290,15 @@
 
       <label>随机种子 seed
         <span class="q">?<span class="tip">
-          <span class="tip-hd">留空 ≠ seed 0</span>
+          <span class="tip-hd">留空或负数 = 随机</span>
           留空时服务端会<b>掷一个真随机种子</b>再用它去噪，所以每次出图都不一样；
-          出图后这个值会<b>填回输入框</b>，想复现同一张就原样再跑一次。<br>
-          自己填了数字就用你填的（同 seed + 同 prompt + 同尺寸 = 同一张图）。<br>
+          出图后<b>不会</b>把这个随机种子写回输入框（留空就一直随机）—— 实际用的种子在右上角卡片和右侧历史里。<br>
+          想复现某一张：点右侧历史里的<b>缩略图</b>，它会把那次的 seed 填进这个输入框，再点生成。<br>
+          自己填了数字（≥0）就用你填的 —— 同 seed + 同 prompt + 同尺寸 = 同一张图。<br>
           <span class="tip-ft">以前留空会返回 seed: 0，但 seed=0 跟"不传 seed"并不等价，拿 0 复现不出来。</span>
         </span></span>
       </label>
-      <input type="number" id="seed" placeholder="留空则随机；出图后回填实际种子">
+      <input type="number" id="seed" placeholder="留空或负数=每次随机；点历史缩略图填回可复现的 seed">
 
       <div class="chk"><input type="checkbox" id="followref" checked>
         <label for="followref" style="margin:0">跟随参考图尺寸
@@ -291,6 +333,20 @@
         </span></span>
       </label></div>
       <div class="chk"><input type="checkbox" id="async"><label for="async" style="margin:0">异步提交（排队，长任务用）</label></div>
+      <div class="chk"><input type="checkbox" id="anatomy" onchange="syncAnatomy()"><label for="anatomy" style="margin:0">人体异常检测，失败后自动换 seed 重跑
+        <span class="q">?<span class="tip">
+          <span class="tip-hd">轻量视觉复检（默认关闭）</span>
+          每次生成后用 CPU 上的小型视觉模型检查明显的人体结构错误；只有高置信度异常才重跑。
+          遮挡、裁切、风格化、无人画面或模型不确定时会放行，避免误判浪费算力。<br>
+          检测器首次启用需要加载模型，可能会多等一会儿。
+        </span></span>
+      </label></div>
+      <label>最多自动重跑次数</label>
+      <select id="anatomyRetries" disabled>
+        <option value="1">1 次</option>
+        <option value="2" selected>2 次</option>
+        <option value="3">3 次</option>
+      </select>
 
       <button id="run" onclick="run()">生成</button>
       <button class="ghost" onclick="probe()">刷新状态</button>
@@ -441,6 +497,8 @@ function collectForm(){
     outres: $('outres').value,
     transparent: $('transparent').checked,
     async: $('async').checked,
+    anatomy: $('anatomy').checked,
+    anatomyRetries: $('anatomyRetries').value,
     followref: followRefOn(),
   };
 }
@@ -463,12 +521,15 @@ function loadForm(){
   set('outres', f.outres);
   if (f.transparent !== undefined) $('transparent').checked = !!f.transparent;
   if (f.async !== undefined) $('async').checked = !!f.async;
+  if (f.anatomy !== undefined) $('anatomy').checked = !!f.anatomy;
+  set('anatomyRetries', f.anatomyRetries);
   // 要在 setMode 之前设好，否则 setMode 里的 syncFollowRef 用的是旧值
   if ($('followref') && f.followref !== undefined) $('followref').checked = !!f.followref;
   setMode(f.mode === 'edit' ? 'edit' : 't2i');
   if ($('ratio')) $('ratio').value = f.ratio || '';
   syncRatio();
   if ($('stepv')) $('stepv').textContent = $('steps').value;
+  syncAnatomy();
   return true;
 }
 
@@ -615,7 +676,7 @@ function sizeAdvice(w, h){
 }
 
 function bindFormPersistence(){
-  ['prompt','negative','width','height','steps','seed','outres','transparent','async','ratio','followref']
+  ['prompt','negative','width','height','steps','seed','outres','transparent','async','ratio','followref','anatomy','anatomyRetries']
     .forEach(id => {
       const el = $(id);
       if (!el) return;
@@ -729,7 +790,7 @@ function applyProgress(p){
   set('p-pct', pct.toFixed(0) + '%');
   // 收尾阶段（去噪已完、图还没到手）：条子收回 99%，别假装已经 100% 了。
   // 这是实测反馈：满格之后还在等，人会以为卡死。
-  const finishing = (p.status === 'decoding' || p.status === 'encoding');
+  const finishing = ['decoding','encoding','validating','retrying'].includes(p.status);
   if (finishing){
     if (bar) bar.style.width = '99%';
     set('p-pct', '99%');
@@ -750,11 +811,30 @@ function applyProgress(p){
     if (nt2) nt2.textContent = '最后一步：PNG 编码 + base64';
     return;
   }
+  else if (p.status === 'validating'){
+    set('p-step', '图片已生成，正在检查人体结构…');
+    set('p-pct', '99%');
+    const nt3 = document.getElementById('p-note');
+    if (nt3) nt3.textContent = `复检第 ${p.attempt || 1} / ${p.max_attempts || 1} 次`;
+    return;
+  }
+  else if (p.status === 'retrying'){
+    set('p-step', '检测到明显异常，正在更换 seed 重跑…');
+    set('p-pct', '99%');
+    return;
+  }
   else set('p-step', '已走 ' + done + ' / ' + total + ' 步');
   set('p-elapsed', fmtDur(p.elapsed_s));
   set('p-perstep', p.per_step_s ? fmtDur(p.per_step_s) : '—');
   set('p-eta', (p.eta_s === null || p.eta_s === undefined) ? '—' : fmtDur(p.eta_s));
   const note = document.getElementById('p-note');
+  // 队列在最底下显示"还有几条"。这里只改那一行的尾部信息，不重建列表
+  // （每 600ms 重建一次 .blist 会白刷 DOM）。列表本身只在每张完成时 render。
+  if (bq.running){
+    const el = $('bstat');
+    if (el) batchStatus(inflightCaption);
+  }
+  batchBar(bq.running ? 100 * bq.idx / Math.max(1, bq.total) : (bq.total ? 100 : 0));
   if (!note) return;
   if (p.callback_unavailable){
     note.textContent = '该 diffusers 版本不上报步进，进度按时间推算';
@@ -782,6 +862,214 @@ function makePoller(pick){
   return { stop(){ stopped = true; clearInterval(timer); } };
 }
 
+/* ---------------------------------------------------------------- 批量队列
+   设计取舍：队列跑在浏览器里，不在服务端。
+   理由：① 能复用已验证的 /v1/images/generations（JSON / multipart 带参考图都行）；
+        ② 服务端只需要补一件事 —— 真正能中断当前生成，就是下面那个 /cancel 接口；
+        ③ 「停止队列」根本不需要服务端支持：不发下一个就完了。 */
+let bq = { queue: [], idx: 0, total: 0, running: false, stopAfterCurrent: false,
+           currentId: null, ok: 0, fail: 0, skip: 0, startedAt: 0, lastSeed: null };
+let batchTimer = null;      // 队列跑的时候用它驱动进度条/状态文案
+let inflightCaption = '';   // 当前在跑哪一条（进度面板底部显示）
+const B_KEEP = 8;          // 结果区只留最近几张的缩略图，避免几十张 base64 堆在内存里
+
+function b64ToBlobUrl(b64){
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
+  for (let k = 0; k < bin.length; k++) u8[k] = bin.charCodeAt(k);
+  return URL.createObjectURL(new Blob([u8], {type: 'image/png'}));
+}
+
+function batchStatus(msg, cls){
+  const el = $('bstat');
+  if (!el) return;
+  const done = bq.idx, total = bq.total;
+  if (!total){ el.textContent = msg || ''; return; }
+  el.innerHTML = '队列 <b>' + (total - done) + '</b> 待跑 · 已完成 <b>' + done + '/' + total +
+                 '</b>' + (bq.fail ? ' · 失败 <b>' + bq.fail + '</b>' : '') +
+                 (bq.skip ? ' · 跳过 <b>' + bq.skip + '</b>' : '') +
+                 (msg ? ' · ' + msg : '');
+  if (cls) el.style.color = cls;
+}
+function batchBar(pct){
+  const b = $('bbar');
+  if (b) b.style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+function batchRender(){
+  const box = $('blist');
+  if (!box) return;
+  box.innerHTML = bq.queue.map((it, i) => {
+    const cls = it.status === 'running' ? 'run'
+              : it.error ? 'bad'
+              : it.status === 'canceled' ? 'skip'
+              : it.status === 'done' ? 'ok' : '';
+    const mark = it.status === 'running' ? '▶'
+               : it.status === 'canceled' ? '✕'
+               : it.error ? '!'
+               : it.status === 'done' ? '✓' : '·';
+    const thumb = it.thumb ? `<img src="${it.thumb}">` : '';
+    const meta = it.error ? `<span class="bm" style="color:var(--bad)">${String(it.error).slice(0, 40)}</span>`
+               : it.ms ? `<span class="bm">${(it.ms / 1000).toFixed(1)}s</span>` : '';
+    const dl = it.thumb ? `<button class="bd" onclick="batchDl(${i})" title="下载">↓</button>` : '';
+    return `<div class="bitem ${cls}"><i>${mark}</i>${thumb}` +
+           `<span class="bt" title="${it.prompt.replace(/"/g, '&quot;')}">${it.prompt}</span>` +
+           meta + dl + '</div>';
+  }).join('');
+}
+
+function batchDl(i){
+  const it = bq.queue[i];
+  if (!it || !it.thumb) return;
+  const a = document.createElement('a');
+  a.href = it.thumb;
+  a.download = `batch_${String(i + 1).padStart(2, '0')}_seed${it.seed ?? 'x'}.png`;
+  a.click();
+}
+
+function batchCancelPending(){
+  for (let i = bq.idx; i < bq.queue.length; i++){
+    if (bq.queue[i].status === 'pending'){ bq.queue[i].status = 'canceled'; bq.skip++; }
+  }
+}
+
+/* 第一次点：跑完当前就停。正在跑的时候再点一次：连当前也中断。 */
+async function batchStop(force){
+  const it = bq.queue[bq.idx];
+  const running = bq.running && it && it.status === 'running';
+  if (force || running){
+    if (running && bq.currentId){
+      try { await post('/v1/progress/' + bq.currentId + '/cancel', {}); } catch(e){}
+    }
+    bq.stopAfterCurrent = false;
+    batchCancelPending();
+    batchStatus('已请求中断当前任务（下一步生效）', 'var(--bad)');
+  } else {
+    bq.stopAfterCurrent = true;
+    batchCancelPending();
+    batchStatus('已停止：当前这张会跑完，后面的不再开始', 'var(--warn)');
+  }
+  batchRender();
+}
+
+async function batchStart(){
+  const ta = $('batch');
+  if (!ta) return;
+  const prompts = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!prompts.length){ log('批量输入是空的：一行一个 prompt', 'err'); return; }
+  if (busy){ log('正在跑单张生成，等它结束或先中断', 'err'); return; }
+  if ($('seed') && $('seed').value !== ''){ $('seed').value = ''; }   // 每张各自掷种子
+
+  bq.queue.forEach(it => { if (it.thumb) URL.revokeObjectURL(it.thumb); });
+  if (batchTimer){ clearInterval(batchTimer); batchTimer = null; }
+  bq = { queue: prompts.map(p => ({prompt: p, status: 'pending'})), idx: 0,
+         total: prompts.length, running: true, stopAfterCurrent: false, currentId: null,
+         ok: 0, fail: 0, skip: 0, startedAt: Date.now(), lastSeed: null };
+  $('bstart').disabled = true;
+  $('bstop').disabled = false;
+  batchRender();
+  batchStatus('开始…');
+  log(`批量队列开始：${prompts.length} 条`);
+
+  const t0 = Date.now();
+  for (bq.idx = 0; bq.idx < bq.queue.length; bq.idx++){
+    const it = bq.queue[bq.idx];
+    if (it.status !== 'pending') continue;
+    if (bq.stopAfterCurrent){ it.status = 'canceled'; bq.skip++; batchRender(); continue; }
+
+    it.status = 'running';
+    it.t0 = Date.now();
+    batchRender();
+    inflightCaption = `批量 ${bq.idx + 1}/${bq.total} · ${it.prompt}`;
+    log(`[${bq.idx + 1}/${bq.total}] ${it.prompt}`);
+    let data = null;
+    try {
+      data = await batchGenerateOne(it.prompt);
+      if (!data) throw new Error('响应为空');
+      it.status = 'done';
+      it.ms = Date.now() - it.t0;
+      it.seed = data.seed;
+      it.b64 = data.b64;
+      bq.ok++;
+    } catch(e){
+      const msg = String(e);
+      if (msg.includes('499') || msg.includes('canceled')){ it.status = 'canceled'; bq.skip++; }
+      else { it.error = msg.slice(0, 120); bq.fail++; }
+      log('  失败/取消：' + msg.slice(0, 160), 'err');
+    }
+    inflightCaption = '';
+    bq.currentId = null;
+    if (it.b64){
+      it.thumb = b64ToBlobUrl(it.b64);
+      // 只留最近 B_KEEP 张缩略图（blob URL 不回收会一直占内存）
+      const thumbs = bq.queue.filter(x => x.thumb);
+      if (thumbs.length > B_KEEP){
+        const old = thumbs[0];
+        URL.revokeObjectURL(old.thumb);
+        old.thumb = null;
+      }
+      bq.lastSeed = it.seed;
+    }
+    batchRender();
+    batchBar(100 * (bq.idx + 1) / bq.total);
+    batchStatus('刚完成 ' + (it.ms ? (it.ms / 1000).toFixed(1) + 's' : ''));
+  }
+
+  const total_s = ((Date.now() - t0) / 1000).toFixed(1);
+  bq.running = false;
+  $('bstart').disabled = false;
+  $('bstop').disabled = true;
+  batchStatus(`队列结束：成功 ${bq.ok} · 失败 ${bq.fail} · 跳过/取消 ${bq.skip} · 共 ${total_s}s`,
+              bq.fail ? 'var(--bad)' : 'var(--good)');
+  log(`批量队列结束：成功 ${bq.ok} 失败 ${bq.fail} 跳过 ${bq.skip}，共 ${total_s}s`,
+      bq.fail ? 'err' : 'ok');
+  if ($('seed') && bq.queue.length && bq.queue[bq.queue.length - 1].seed !== undefined){
+    $('seed').value = bq.queue[bq.queue.length - 1].seed;   // 最后一张的种子，方便复现
+  }
+  saveForm();
+}
+
+/* 批量里的单条：文生图走 JSON，编辑模式走 multipart（带全部参考图）。 */
+async function batchGenerateOne(prompt){
+  const rid = 'req_b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  bq.currentId = rid;
+  let r;
+  if (mode === 'edit' && files.length){
+    const fd = new FormData();
+    fd.append('prompt', prompt);
+    fd.append('num_inference_steps', $('steps').value);
+    fd.append('output_format', 'png');
+    fd.append('transparent', $('transparent').checked);
+    fd.append('request_id', rid);
+    if ($('outres').value) fd.append('output_resolution', $('outres').value);
+    const follow = followRefOn();
+    if ($('ratio').value) fd.append('aspect_ratio', $('ratio').value);
+    else if (!follow){
+      if ($('width').value) fd.append('width', $('width').value);
+      if ($('height').value) fd.append('height', $('height').value);
+    }
+    files.forEach(f => fd.append('image', f, f.name));
+    const go = () => fetch(withKey(api('/v1/images/edits')),
+                           {method: 'POST', headers: authHeaders(), body: fd});
+    r = await go();
+    if (r.status === 401 && on401()) r = await go();
+  } else {
+    const p = params();
+    p.prompt = prompt;
+    p.request_id = rid;
+    const go = () => fetch(withKey(api('/v1/images/generations')), {
+      method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}),
+      body: JSON.stringify(p)});
+    r = await go();
+    if (r.status === 401 && on401()) r = await go();
+  }
+  if (r.status === 499) throw new Error('499 canceled by user');
+  if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 200));
+  const j = await r.json();
+  const item = j.data && j.data[0];
+  return item ? {b64: item.b64_json, seed: item.seed} : null;
+}
+
 /* ---------------------------------------------------------------- 上传 */
 $('drop').onclick = () => $('file').click();
 $('file').onchange = e => addFiles(e.target.files);
@@ -796,6 +1084,12 @@ if ($('followref')) $('followref').addEventListener('change', () => {
   syncFollowRef(); refSizeHint(); saveForm();
 });
 if ($('outres')) $('outres').addEventListener('change', () => refSizeHint());
+
+function syncAnatomy(){
+  const enabled = $('anatomy') && $('anatomy').checked;
+  if ($('anatomyRetries')) $('anatomyRetries').disabled = !enabled;
+  saveForm();
+}
 
 function addFiles(list){
   [...list].forEach(f => { if (files.length < 10 && f.type.startsWith('image/')) files.push(f); });
@@ -894,11 +1188,17 @@ function params(){
     num_inference_steps: parseInt($('steps').value, 10),
     output_format: 'png',
     transparent: $('transparent').checked,
+    anatomy_check: $('anatomy').checked,
+    anatomy_max_retries: parseInt($('anatomyRetries').value, 10),
   };
   const ratio = $('ratio').value;
   if (ratio) p.aspect_ratio = ratio;
   else { p.width = parseInt($('width').value,10); p.height = parseInt($('height').value,10); }
-  if ($('seed').value !== '') p.seed = parseInt($('seed').value, 10);
+  // seed：留空或负数都算"不指定"——服务端自己掷一个真随机种子。
+  // 负数不发给后端（负数不是合法种子，发过去只会被当成复现参数）。
+  const seedRaw = $('seed').value.trim();
+  const seedNum = seedRaw === '' ? NaN : parseInt(seedRaw, 10);
+  if (Number.isFinite(seedNum) && seedNum >= 0) p.seed = seedNum;
   if ($('negative').value.trim()) p.negative_prompt = $('negative').value.trim();
   return p;
 }
@@ -926,7 +1226,7 @@ async function run(){
     poller = makePoller(list => {
       const mine = (list || []).find(x => x.request_id === myId);
       if (mine) return mine;
-      const running = (list || []).filter(x => x.status === 'running');
+      const running = (list || []).filter(x => ['running','decoding','encoding','validating','retrying'].includes(x.status));
       return running.length ? running[0] : null;
     });
 
@@ -959,6 +1259,8 @@ async function run(){
       fd.append('num_inference_steps', p.num_inference_steps);
       if (p.seed !== undefined) fd.append('seed', p.seed);
       fd.append('transparent', p.transparent);
+      fd.append('anatomy_check', p.anatomy_check);
+      fd.append('anatomy_max_retries', p.anatomy_max_retries);
       if ($('outres').value) fd.append('output_resolution', $('outres').value);
       // 编辑：宽高/档位留空则跟随参考图；填了就是分辨率杠杆（可出 2K）
       // 跟随参考图时不发宽高（HTML 预填的 1024 会覆盖比例 —— 实测踩过的坑）
@@ -982,9 +1284,8 @@ async function run(){
     lastB64 = item.b64_json;
     lastMeta = {prompt: p.prompt, seed: item.seed, size: item.width + 'x' + item.height,
                 steps: p.num_inference_steps};
-    // 留空时服务端会自己掷一个真随机种子 —— 把它填回输入框，
-    // 否则用户看到的是空框，想复现也没得复制（以前还会错报成 0）
-    if (item.seed !== undefined && item.seed !== null && $('seed')) $('seed').value = item.seed;
+    // 不把这次掷出来的随机种子写回输入框：留空就该一直随机。
+    // 实际用的种子在右上角 seed 卡片 + 右侧历史里；想复现就点历史缩略图（会把 seed 填回来）。
     $('stage').innerHTML = `<img id="out" src="data:image/png;base64,${item.b64_json}">`;
     $('k-time').textContent = elapsed.toFixed(1) + 's';
     $('k-size').textContent = item.width + '×' + item.height;
@@ -993,10 +1294,12 @@ async function run(){
     const tm = item.timing || {};
     const perStep = tm.per_step_s ? ` · 每步 ${tm.per_step_s}s` : '';
     const seedNote = (item.seed !== undefined && item.seed !== null)
-      ? ` · seed ${item.seed}` + (item.seed_given === false ? '（本次自动掷的，已填回输入框）' : '')
+      ? ` · seed ${item.seed}` + (item.seed_given === false ? '（服务端随机掷的，未写回输入框）' : '')
       : '';
+    const ac = item.anatomy_check;
+    const anatomyNote = ac ? ` · 人体复检${ac.passed ? '通过' : '重试用尽'}（生成 ${ac.attempts} 次）` : '';
     log(`完成：${item.width}×${item.height} · ${elapsed.toFixed(1)}s${perStep}${seedNote}`
-        + (tm.prep_s ? `（其中准备开销 ${tm.prep_s}s）` : ''), 'ok');
+        + anatomyNote + (tm.prep_s ? `（其中准备开销 ${tm.prep_s}s）` : ''), ac && !ac.passed ? 'err' : 'ok');
     pushHist(item, elapsed);
     saveForm();                    // 出图成功后连同这次用的参数一起记住
     probe();
@@ -1037,18 +1340,19 @@ function download(){
 }
 function copyPrompt(){
   $('prompt').value = lastMeta.prompt || '';
-  if (lastMeta.seed !== undefined) $('seed').value = lastMeta.seed;
+  const hasSeed = lastMeta.seed !== undefined && lastMeta.seed !== null;
+  if (hasSeed) $('seed').value = lastMeta.seed;
   if (lastMeta.steps) { $('steps').value = lastMeta.steps; stepv.textContent = lastMeta.steps; }
-  log('已复用上次参数（seed=' + lastMeta.seed + '）');
+  log('已复用上次参数' + (hasSeed ? '（含 seed=' + lastMeta.seed + '；想重新随机就把 seed 清空）' : ''));
 }
 function pushHist(item, elapsed){
   window._hist = window._hist || [];
   window._hist.unshift({seed:item.seed, size:item.width + 'x' + item.height,
                         t:elapsed.toFixed(1), b64:item.b64_json});
   window._hist = window._hist.slice(0, 12);
-  $('hist').innerHTML = `<table><tr><th>#</th><th>尺寸</th><th>seed</th><th>耗时</th><th></th></tr>` +
+  $('hist').innerHTML = `<table><tr><th>#</th><th>尺寸</th><th>seed</th><th>耗时</th><th>点图复现</th></tr>` +
     window._hist.map((h,i) => `<tr><td>${i+1}</td><td>${h.size}</td><td>${h.seed}</td>
-      <td>${h.t}s</td><td><img src="data:image/png;base64,${h.b64}"
+      <td>${h.t}s</td><td><img src="data:image/png;base64,${h.b64}" title="点这张图：把它的 seed 填进输入框"
       style="width:54px;border-radius:5px;cursor:pointer" onclick="showHist(${i})"></td></tr>`).join('') +
     '</table>';
 }
@@ -1058,6 +1362,11 @@ function showHist(i){
   $('stage').innerHTML = `<img src="data:image/png;base64,${h.b64}">`;
   $('k-size').textContent = h.size.replace('x','×'); $('k-seed').textContent = h.seed;
   $('k-time').textContent = h.t + 's'; $('dl').disabled = false;
+  // 点历史里的图 = "我要复现这一张"：这是唯一会自动把 seed 填回输入框的地方。
+  if (h.seed !== undefined && h.seed !== null && $('seed')){
+    $('seed').value = String(h.seed);
+    log(`已填入这张图的 seed ${h.seed} —— 同 prompt + 同尺寸再生成即可复现；清空则重新随机`);
+  }
 }
 
 setMode('t2i');

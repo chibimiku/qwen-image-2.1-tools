@@ -46,13 +46,22 @@ for (const s of ['id="followref"', 'id="refsize"', 'function syncFollowRef',
   console.log(`  ${JSON.stringify(s)}: ${n}${n >= 1 ? ' OK' : ' MISSING!'}`);
 }
 
-// 递归风险：A 调 B、B 又调 A —— 这种死递归只会在浏览器里炸，必须静态拦下
-const code = blocks.map(m => m[1]).join('\n');
-const FNS = [...code.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(/g)].map(m => m[1]);
+// 递归风险：A 调 B、B 又调 A —— 这种死递归只会在浏览器里炸，必须静态拦下。
+// 两个坑都踩过，所以这里：① 先剥注释（注释里提到函数名会被当成调用）；
+// ② 用"函数起始位置数组"切片，而不是找 '\nfunction ' —— 函数之间的注释块会让
+// 朴素切片把下一个函数的声明也包进来，于是 batchCancelPending 里凭空"出现"
+// 了 batchStop，误报成环。
+const code = blocks.map(m => m[1]).join('\n')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')       // 块注释
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1');   // 行注释（[^:] 避开 https:// ）
+
+const fns = [...code.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(/g)];
+const FNS = fns.map(m => m[1]);
+const startAt = new Map(fns.map((m, i) => [m[1], m.index]));
+const endAt = new Map(fns.map((m, i) => [m[1], i + 1 < fns.length ? fns[i + 1].index : code.length]));
 const calls = {};
 for (const fn of FNS) {
-  const body = code.slice(code.indexOf(`function ${fn}(`));
-  const seg = body.slice(0, body.indexOf('\nfunction ') === -1 ? body.length : body.indexOf('\nfunction '));
+  const seg = code.slice(startAt.get(fn), endAt.get(fn));
   calls[fn] = new Set(FNS.filter(o => o !== fn && new RegExp(`\\b${o}\\s*\\(`).test(seg)));
 }
 console.log('--- 互相调用检测（A→B 且 B→A 就是死递归） ---');
