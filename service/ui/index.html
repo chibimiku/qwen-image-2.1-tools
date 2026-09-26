@@ -247,8 +247,16 @@
       </label>
       <input type="range" id="steps" min="4" max="60" value="30" oninput="stepv.textContent=this.value">
 
-      <label>随机种子 seed（留空=随机；填了可复现）</label>
-      <input type="number" id="seed" placeholder="例如 22">
+      <label>随机种子 seed
+        <span class="q">?<span class="tip">
+          <span class="tip-hd">留空 ≠ seed 0</span>
+          留空时服务端会<b>掷一个真随机种子</b>再用它去噪，所以每次出图都不一样；
+          出图后这个值会<b>填回输入框</b>，想复现同一张就原样再跑一次。<br>
+          自己填了数字就用你填的（同 seed + 同 prompt + 同尺寸 = 同一张图）。<br>
+          <span class="tip-ft">以前留空会返回 seed: 0，但 seed=0 跟"不传 seed"并不等价，拿 0 复现不出来。</span>
+        </span></span>
+      </label>
+      <input type="number" id="seed" placeholder="留空则随机；出图后回填实际种子">
 
       <div class="chk"><input type="checkbox" id="followref" checked>
         <label for="followref" style="margin:0">跟随参考图尺寸
@@ -974,6 +982,9 @@ async function run(){
     lastB64 = item.b64_json;
     lastMeta = {prompt: p.prompt, seed: item.seed, size: item.width + 'x' + item.height,
                 steps: p.num_inference_steps};
+    // 留空时服务端会自己掷一个真随机种子 —— 把它填回输入框，
+    // 否则用户看到的是空框，想复现也没得复制（以前还会错报成 0）
+    if (item.seed !== undefined && item.seed !== null && $('seed')) $('seed').value = item.seed;
     $('stage').innerHTML = `<img id="out" src="data:image/png;base64,${item.b64_json}">`;
     $('k-time').textContent = elapsed.toFixed(1) + 's';
     $('k-size').textContent = item.width + '×' + item.height;
@@ -981,7 +992,10 @@ async function run(){
     $('dl').disabled = false; $('copy').disabled = false;
     const tm = item.timing || {};
     const perStep = tm.per_step_s ? ` · 每步 ${tm.per_step_s}s` : '';
-    log(`完成：${item.width}×${item.height} · ${elapsed.toFixed(1)}s${perStep}`
+    const seedNote = (item.seed !== undefined && item.seed !== null)
+      ? ` · seed ${item.seed}` + (item.seed_given === false ? '（本次自动掷的，已填回输入框）' : '')
+      : '';
+    log(`完成：${item.width}×${item.height} · ${elapsed.toFixed(1)}s${perStep}${seedNote}`
         + (tm.prep_s ? `（其中准备开销 ${tm.prep_s}s）` : ''), 'ok');
     pushHist(item, elapsed);
     saveForm();                    // 出图成功后连同这次用的参数一起记住

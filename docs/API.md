@@ -218,7 +218,7 @@ curl -H "Cookie: $COOKIE" https://<入口>/v1/models
 | `width` / `height` | int | 2048×2048 | 显式尺寸 |
 | `size` | string | — | `"2048x2048"` 形式，优先级低于 width/height |
 | `aspect_ratio` | string | — | `1:1 4:3 3:4 3:2 2:3 16:9 9:16` |
-| `seed` | int | 随机 | 复现用 |
+| `seed` | int | — | **不传就由服务端掷一个真随机种子**（0 ~ 2³¹-1），并把它回填到响应里 |
 | `transparent` | bool | false | true 时服务自动补官方透明提示词前缀，输出 RGBA |
 | `output_format` | string | `png` | `png` / `jpeg` / `webp` |
 | `guidance_scale` | float | — | **别名**，服务端映射到真实的 `true_cfg_scale`（管线并没有叫 guidance_scale 的参数） |
@@ -240,10 +240,21 @@ curl -s -X POST "http://127.0.0.1:6006/v1/images/generations" \
   "created": 1787000000,
   "model": "Qwen-Image-2.1",
   "size": "2048x2048",
-  "data": [{"b64_json": "iVBORw0K...", "seed": 42, "width": 2048, "height": 2048,
+  "data": [{"b64_json": "iVBORw0K...", "seed": 1319355784, "seed_given": false,
+            "width": 2048, "height": 2048,
             "mode": "RGBA", "elapsed_s": 96.4}]
 }
 ```
+
+> **关于 `seed`（以前这里有个坑）**：不传 `seed` 时，服务端会自己掷一个真随机种子，
+> 用它建 `torch.Generator` 再去噪，然后**如实返回**这个值。
+> 所以「每次都不一样」和「拿到种子就能复现」同时成立：
+> 把响应里的 `seed` 原样传回来，就是同一张图。
+>
+> 以前不传 seed 会走管线的全局 RNG（图确实是随机的，但返回里写的是 `seed: 0`），
+> 而 `seed=0` 与「不传 seed」**并不等价** —— 拿 0 去复现只会得到另一张随机图。
+>
+> `seed_given` 告诉你这个种子是你给的还是服务端掷的；多图时每张依次 +1。
 
 ### 3.3.1 参考图怎么在 prompt 里点名（`<image1>` / `<image2>` …）
 

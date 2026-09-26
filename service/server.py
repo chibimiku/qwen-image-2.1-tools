@@ -24,6 +24,7 @@ import base64
 import inspect
 import io
 import os
+import random
 import re
 import secrets
 import time
@@ -362,14 +363,21 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
         pipe = await get_pipe()
         if pipe is None:
             png = mock_png(width, height, prompt)
-            out = [{"b64_json": _b64(png), "seed": seed or 0, "width": width, "height": height}]
+            out = [{"b64_json": _b64(png), "seed": seed if seed is not None else 0,
+                    "width": width, "height": height}]
             return out
         # 生成前的准备开销（显存回收 / 权重已是常驻）要单独计时，
         # 否则用户看到的"每步耗时"会被这段一次性开销污染
         prep_s = round(time.time() - t0, 2)
-        generator = None
-        if seed is not None:
-            generator = torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(int(seed))
+        # ── 种子 ──
+        # 以前这里留空就传 generator=None，管线走全局 RNG —— 图是随机的没错，
+        # 但返回里写 seed: 0，而 seed=0 跟"不传 seed"并不等价，拿 0 复现不出同一张。
+        # 现在改成：不给就自己掷一个真随机种子，用它做 generator，然后如实返回。
+        # 于是"随机生成"和"记下种子可复现"能同时成立。
+        seed_given = seed is not None
+        if not seed_given:
+            seed = random.randrange(0, 2 ** 31 - 1)
+        generator = torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(int(seed))
         kwargs: Dict[str, Any] = {
             "prompt": prompt,
             "num_inference_steps": steps,
@@ -505,7 +513,10 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                     **({"compress_level": 1} if fmt == "png" else {}))
             items.append({
                 "b64_json": _b64(buf.getvalue()),
-                "seed": (seed + i) if seed is not None else i,
+                # 多图时每张的种子依次 +1（和 generator 的推进方式一致），
+                # 这样每张图都能被单独复现
+                "seed": int(seed) + i,
+                "seed_given": bool(seed_given),
                 "width": im.width, "height": im.height,
                 "mode": im.mode, "elapsed_s": elapsed,
             })
