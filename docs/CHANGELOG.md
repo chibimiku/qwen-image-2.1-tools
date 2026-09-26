@@ -1,5 +1,65 @@
 # CHANGELOG
 
+## 2026-09-27（凌晨 · 第三十一批）· 服务重启后页面卡死 + 登录框输不进字
+
+### 用户反馈
+"如果页面没刷新就重启，这时候页面上会重新弹出 token 的提示，此时 Js 有问题，变得非常卡，
+而且用户输入 token 会被立马清空"
+
+### 两个症状，两个不同的原因 —— 都在 401 处理链上
+
+**症状 1：输入被立马清空** —— `showLogin()` 无条件执行 `inp.value = ''`：
+
+```js
+function showLogin(msg){
+  ov.style.display = 'flex';
+  const inp = document.getElementById('loginkey');
+  if (inp){ inp.value = ''; setTimeout(...focus..., 60); }   // ← 每次调用都清
+}
+```
+
+而服务重启后会话 Cookie 失效，**每个在飞的请求都 401**，`on401()` 每个都调 `showLogin()`
+（进度轮询 600ms 一次）。于是用户每敲一个字，就被后到的 401 清掉。
+
+**症状 2：非常卡** —— `on401()` 没有任何去重：
+
+```js
+async function on401(){
+  AUTHED = false;
+  log('会话失效或未登录（401）', 'err');        // 每个 401 一行日志
+  const st = await sessionState();              // 每个 401 一次额外请求
+  if (st.auth_required) showLogin('…');
+}
+```
+
+叠加三个周期任务（进度 600ms / probe 15s / 会话条 60s）与每次请求失败后的重试，
+401 一来就是持续刷屏的额外请求 + 日志，页面自然卡。
+
+### 改动
+
+1. **`showLogin()` 只在首次弹出时清空输入框**（用 `wasOpen` 判断），之后只更新提示文字。
+2. **`on401()` 去重**：`_authProbe` 保证同一时刻只有一个 `/v1/session` 探测，
+   并发调用挂在同一个 promise 上；日志按 10 秒节流。
+3. **不再"401 就立刻重发"**：`get()` / `post()` / 批量的两条路径都改成
+   `await on401(); throw`。以前 `on401()` 的返回值恒为 `false`，重试分支根本进不去；
+   一旦有人把它改成 `true`，就会变成 401 死循环。现在从写法上杜绝。
+4. **`makePoller` 的 `ticking` 挪进 `finally`**：原来若 `get()` 在 401 分支里抛出，
+   标志永远停在 `true`，轮询从此停摆（表现是"进度条不动了"）。
+5. **`refreshSessionBar()` 复用 `on401` 的探测**，不叠加第二个 `/v1/session`。
+
+### 防回归
+
+新增 `tools/webui_check_invariants.js`：把这几条**踩过的坑**写成不变量一起查 ——
+会话失效处理、401 不重试、轮询标志用 finally、尺寸优先级、登录框不自触发。
+共 5 组 21 项，全过。
+
+### 验证
+
+`check_ui_js.js` 语法通过；`webui_check_invariants.js` 21 项全过；
+`webui_check_size_priority.js` 16 项全过；远端与本地 md5 一致。
+
+---
+
 ## 2026-09-27（凌晨 · 第三十批）· 补齐 WebUI 缺失的管线参数（负面词 / CFG / 多图 / sigmas）
 
 ### 用户要求

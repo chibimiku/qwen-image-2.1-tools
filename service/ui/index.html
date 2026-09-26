@@ -531,11 +531,18 @@ async function logout(){
 function showLogin(msg){
   const ov = document.getElementById('login');
   if (!ov) return;
+  const wasOpen = ov.style.display === 'flex';
   ov.style.display = 'flex';
   const err = document.getElementById('loginerr');
-  if (err) err.textContent = msg || '';
+  if (err && msg) err.textContent = msg;
+  // ⚠ 关键：只有第一次弹出时才清空/聚焦输入框。
+  // 服务重启后页面会持续收到 401（进度轮询 600ms 一次），每次都调本函数；
+  // 以前无条件 inp.value = ''，于是用户每敲一个字就被后到的 401 清掉 —— 根本输不进去。
   const inp = document.getElementById('loginkey');
-  if (inp){ inp.value = ''; setTimeout(function(){ inp.focus(); }, 60); }
+  if (inp && !wasOpen){
+    inp.value = '';
+    setTimeout(function(){ inp.focus(); }, 60);
+  }
 }
 
 function hideLogin(){
@@ -955,10 +962,25 @@ function authHeaders(extra){
 function withKey(url){ return url; }        // 会话走 Cookie，不再往 URL 里塞 key
 function api(path){ return ROOT + path; }
 
+/* 401 统一处理。**必须去重**：服务重启后每个在飞的请求都会 401，
+   而进度轮询是 600ms 一次 —— 不去重的话每 600ms 就发一个 /v1/session 探测、
+   刷一大串日志、反复弹登录框，页面直接卡死（实测过）。 */
+let _authProbe = null;        // 正在跑的探测 promise，同时只允许一个
+let _authWarnedAt = 0;        // 日志节流：同类警告 10 秒最多一条
+
 async function on401(){
   AUTHED = false;
-  log('会话失效或未登录（401）', 'err');
-  const st = await sessionState();
+  const now = Date.now();
+  if (now - _authWarnedAt > 10000){
+    _authWarnedAt = now;
+    log('会话失效或未登录（401）', 'err');
+  }
+  // 同时只跑一个 sessionState()：并发调用的都挂到同一个 promise 上
+  if (!_authProbe){
+    _authProbe = sessionState().finally(() => { _authProbe = null; });
+  }
+  let st = {};
+  try { st = (await _authProbe) || {}; } catch(e){ st = {}; }
   if (st.auth_required) showLogin('需要 API Key 才能使用。');
   return false;
 }
@@ -967,6 +989,8 @@ async function refreshSessionBar(){
   const el = document.getElementById('sessbar');
   if (!el) return;
   if (!AUTH_REQUIRED){ el.textContent = '未启用鉴权'; return; }
+  // 别和 on401 的探测叠一起：会话失效时 on401 已经在查了，这里再独立发一次就是双倍请求
+  if (_authProbe){ try { await _authProbe; } catch(e){} }
   const st = await sessionState();
   if (st.authenticated){
     const h = st.expires_in_s ? Math.round(st.expires_in_s / 3600) : '?';
@@ -1111,9 +1135,17 @@ function makePoller(pick){
   const tick = async () => {
     if (stopped || ticking) return;
     ticking = true;
-    try { const list = await get('/v1/progress'); const p = pick(list.data); if (p) applyProgress(p); }
-    catch(_){}
-    ticking = false;
+    // finally 里清标志：get() 在 401 分支里会 await on401()（可能弹登录框、等用户操作），
+    // 万一那一步抛出，标志就永远停在 true —— 轮询从此再不工作。实测会表现为"进度条不动"。
+    try {
+      const list = await get('/v1/progress');
+      const p = pick(list.data);
+      if (p) applyProgress(p);
+    } catch(_){
+      // 401 / 网络错误都走这里，静默重试即可（on401 已经提示过一次了）
+    } finally {
+      ticking = false;
+    }
   };
   const timer = setInterval(tick, 600);
   tick();
@@ -1335,7 +1367,9 @@ async function batchGenerateOne(prompt){
     const go = () => fetch(withKey(api('/v1/images/edits')),
                            {method: 'POST', headers: authHeaders(), body: fd});
     r = await go();
-    if (r.status === 401 && on401()) r = await go();
+    // 不重试 401：这批的 FormData 已经发过一次，重发要重新构造；
+    // 而且 on401 只负责弹登录框、不会等在位，直接重试会变成 401 死循环（服务重启后触发）。
+    if (r.status === 401) await on401();
   } else {
     const p = params();
     p.prompt = prompt;
@@ -1344,7 +1378,7 @@ async function batchGenerateOne(prompt){
       method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}),
       body: JSON.stringify(p)});
     r = await go();
-    if (r.status === 401 && on401()) r = await go();
+    if (r.status === 401) await on401();   // 同上：不重试，避免 401 死循环
   }
   if (r.status === 499) throw new Error('499 canceled by user');
   if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 200));
@@ -1668,13 +1702,15 @@ async function post(url, body){
   const r = await fetch(withKey(api(url)), {
     method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
     body: JSON.stringify(body)});
-  if (r.status === 401 && on401()) return post(url, body);      // 重新输入后再来一次
+  // on401 只负责弹登录框，不会等用户输完 —— 所以这里不能直接重发，
+  // 否则服务重启后每个 401 都会立刻再发一次，轮询场景下就是请求风暴（实测卡死）。
+  if (r.status === 401) { await on401(); throw new Error('HTTP 401'); }
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 async function get(url){
   const r = await fetch(withKey(api(url)), {headers: authHeaders()});
-  if (r.status === 401 && on401()) return get(url);
+  if (r.status === 401) { await on401(); throw new Error('HTTP 401'); }
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
