@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Qwen-Image-2.1 控制台</title>
+<style>
+ :root{--bg:#0e1116;--panel:#161b22;--panel2:#1c2230;--line:#262d38;--fg:#e6edf3;--dim:#8b949e;
+       --accent:#58a6ff;--good:#3fb950;--bad:#f85149;--warn:#d29922}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--fg);
+      font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+ header{display:flex;justify-content:space-between;align-items:center;gap:16px;
+        padding:14px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;
+        background:rgba(14,17,22,.92);backdrop-filter:blur(6px);z-index:9}
+ h1{font-size:17px;margin:0;font-weight:600}
+ h1 small{color:var(--dim);font-weight:400;font-size:12px;margin-left:8px}
+ .gpu{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--dim)}
+ .pill{padding:3px 10px;border-radius:20px;border:1px solid var(--line);background:var(--panel)}
+ .pill.ok{color:var(--good);border-color:#238636}
+ .pill.bad{color:var(--bad);border-color:#b3282d}
+ .wrap{display:grid;grid-template-columns:340px 1fr;gap:18px;padding:18px 22px 60px;
+       align-items:start;max-width:1720px;margin:0 auto}
+ .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+ .panel h2{font-size:14px;margin:0 0 12px;color:#adbac7;font-weight:600}
+ label{display:block;font-size:12px;color:var(--dim);margin:10px 0 4px}
+ input[type=text],input[type=number],textarea,select{
+   width:100%;background:#0b0f14;border:1px solid var(--line);color:var(--fg);
+   border-radius:8px;padding:8px 10px;font:inherit;font-size:13px}
+ textarea{min-height:110px;resize:vertical;line-height:1.55}
+ input[type=range]{width:100%}
+ .row{display:flex;gap:10px}.row>*{flex:1}
+ .chk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg);margin:10px 0}
+ .chk input{width:auto}
+ button{width:100%;margin-top:14px;padding:10px;border:0;border-radius:9px;background:var(--accent);
+        color:#04121f;font-weight:700;font-size:14px;cursor:pointer}
+ button:disabled{background:#2d333b;color:var(--dim);cursor:not-allowed}
+ button.ghost{background:var(--panel2);color:var(--fg);border:1px solid var(--line);font-weight:500}
+ .drop{border:1px dashed var(--line);border-radius:10px;padding:14px;text-align:center;
+       color:var(--dim);font-size:12px;cursor:pointer;background:#0b0f14}
+ .drop.hot{border-color:var(--accent);color:var(--accent)}
+ .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+ .thumb{position:relative;width:74px;height:74px;border-radius:8px;overflow:hidden;
+        border:1px solid var(--line)}
+ .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+ .thumb b{position:absolute;top:2px;right:4px;cursor:pointer;color:#fff;text-shadow:0 0 4px #000}
+  .thumb i{position:absolute;left:0;bottom:0;right:0;font-style:normal;font-size:10px;text-align:center;
+           background:rgba(0,0,0,.6);color:#fff;letter-spacing:.3px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  .chip{font-family:ui-monospace,Consolas,monospace;font-size:12px;padding:3px 9px;border-radius:20px;
+        border:1px solid var(--line);background:#0b0f14;color:var(--accent);cursor:pointer;white-space:nowrap}
+  .chip:hover{background:var(--accent);color:#06121f;border-color:var(--accent)}
+  .chiphint{color:var(--dim);font-size:11px;line-height:1.6}
+ .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+ .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+ .kpi .k{color:var(--dim);font-size:11px}.kpi .v{font-size:16px;font-weight:700}
+ .stage{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        min-height:420px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+ .stage img{max-width:100%;max-height:74vh;display:block;border-radius:10px}
+ .stage .hint{color:var(--dim);font-size:13px;text-align:center;padding:40px}
+ .bar{position:absolute;inset:auto 0 0 0;height:4px;background:#0b0f14}
+ .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+ /* 生成中的进度面板：真实步数 / 每步耗时 / ETA */
+ .prog{margin:34px auto;width:min(560px,86%);background:#12171e;border:1px solid var(--line);
+       border-radius:12px;padding:18px 20px;text-align:left}
+ .prog-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+ .prog-step{font-size:15px;font-weight:600;color:#e6edf3}
+ .prog-pct{font-size:20px;font-weight:700;color:var(--accent)}
+ .prog .bar{position:relative;inset:auto;height:8px;border-radius:5px;overflow:hidden}
+ .prog-grid{display:grid;grid-template-columns:auto 1fr auto 1fr auto 1fr;gap:6px 12px;
+            margin-top:14px;font-size:12px;align-items:baseline}
+ .prog-grid span{color:var(--dim)}
+ .prog-grid b{font-family:ui-monospace,Consolas,monospace;font-size:14px;color:#e6edf3}
+ .prog-note{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);
+            color:#8b949e;font-size:12px;line-height:1.5}
+ @media(max-width:640px){.prog-grid{grid-template-columns:auto 1fr}}
+ /* 问号提示：鼠标悬停显示说明 */
+ .q{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
+    margin-left:6px;border-radius:50%;background:#2d333b;color:#9aa4b2;font-size:11px;
+    font-weight:700;cursor:help;position:relative;vertical-align:middle;user-select:none}
+ .q:hover{background:var(--accent);color:#04121f}
+ .q .tip{display:none;position:absolute;top:22px;left:-6px;z-index:50;width:min(440px,84vw);
+         background:#0b0f14;border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+         color:var(--fg);font-size:12px;font-weight:400;line-height:1.75;text-align:left;
+         box-shadow:0 14px 40px rgba(0,0,0,.6);white-space:normal}
+ .q:hover .tip{display:block}
+ .q .tip b{color:var(--accent)}
+ .q .tip code{background:#161b22;padding:1px 5px;border-radius:4px;color:#9cdcfe}
+ .q .tip ul{margin:6px 0;padding-left:18px}
+ .q .tip li{margin:3px 0}
+ .q .tip .tip-hd{color:#e6edf3;font-weight:600;display:block;margin-bottom:6px}
+ .q .tip .tip-ft{color:var(--dim);font-size:11px;border-top:1px dashed var(--line);
+                 margin-top:8px;padding-top:6px;display:block}
+ .q.tip-right .tip{left:auto;right:-6px}
+ /* 登录遮罩 */
+ #login{position:fixed;inset:0;background:rgba(8,10,14,.82);backdrop-filter:blur(3px);
+        display:flex;align-items:center;justify-content:center;z-index:999;padding:20px}
+ .loginbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+           padding:24px 26px;width:min(420px,92vw);box-shadow:0 18px 50px rgba(0,0,0,.5)}
+ .loginbox h3{margin:0 0 10px;font-size:17px}
+ .loginbox p{color:#9aa4b2;font-size:12.5px;line-height:1.65;margin:0 0 14px}
+ .loginbox input{width:100%;background:#0b0f14;border:1px solid var(--line);color:var(--fg);
+                 border-radius:8px;padding:10px 12px;font:inherit;font-size:14px}
+ .loginerr{color:var(--bad);font-size:12.5px;min-height:18px;margin:8px 0 2px}
+ .loginbox button{width:100%;margin-top:6px}
+ .loginhint{color:var(--dim);font-size:11.5px;margin-top:12px;line-height:1.5}
+ .acts{display:flex;gap:10px;margin-top:12px}
+ .acts button{margin:0}
+ .log{margin-top:12px;background:#0b0f14;border:1px solid var(--line);border-radius:10px;
+      padding:10px 12px;font:12px/1.6 ui-monospace,Consolas,monospace;color:#9aa4b2;
+      max-height:190px;overflow:auto;white-space:pre-wrap}
+ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+ th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)}
+ th{color:var(--dim);font-weight:500}
+ .tabs{display:flex;gap:6px;margin-bottom:12px}
+ .tabs span{padding:6px 12px;border-radius:8px;background:var(--panel2);cursor:pointer;font-size:13px}
+ .tabs span.on{background:var(--accent);color:#04121f;font-weight:600}
+ @media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Qwen-Image-2.1 控制台 <small id="where"></small></h1>
+  <div class="gpu">
+    <span class="pill" id="conn">连接中…</span>
+    <span class="pill" id="gpuinfo">—</span>
+    <span class="pill" id="vram">—</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- ------------------------------------------------ 左侧控制区 -->
+  <div>
+    <div class="panel">
+      <div class="tabs">
+        <span id="tab-t2i" class="on" onclick="setMode('t2i')">文生图</span>
+        <span id="tab-edit" onclick="setMode('edit')">图像编辑</span>
+      </div>
+      <div class="kbd" style="margin:-4px 0 12px 0;display:flex;align-items:center">
+        <span>选哪个？</span>
+        <span class="q">?<span class="tip">
+          <span class="tip-hd">两个 Tab 的区别（依据官方 README + 本机实测）</span>
+          <b>文生图</b>：只吃文字，从零画一张。参数里没有参考图，上传的图不会进模型。<br>
+          <b>图像编辑</b>：文字 + 参考图（<code>image</code> 参数，最多 10 张）。官方 README 把
+          "多参考图" 归在 <i>Image Editing → Multiple Reference Images</i>，
+          用途写的是 <i>multi-subject composition</i>（多主体合成），示例是"六张单人头像合成一张合影"。<br>
+          <b>底层是同一个管线</b>（<code>QwenImage21Pipeline</code>）：
+          传了 <code>image</code> 就是条件生成，没传就是纯文本生成。所以"编辑"并不是只能改一张图。<br>
+          <b>想让两个人物拥抱 → 用「图像编辑」并同时上传两张图，prompt 描述场景。</b>
+          <ul>
+            <li>只给一张参考图 → 模型只认识一个人，另一个得靠文字编，长相不受控</li>
+            <li>给两张 → 两个人的身份都能被"看见"，这是官方支持的多主体合成</li>
+            <li>输出比例默认跟随<b>最后一张</b>参考图（实测 A+B 出 1024²，B+A 出 896×1184）；
+                想固定就手填宽高或选档位</li>
+          </ul>
+          <span class="tip-ft">官方文档：Multi-Reference Editing，up to 10 reference images，
+          "preserve identity for people and products"</span>
+        </span></span>
+      </div>
+
+      <label>提示词 prompt</label>
+      <textarea id="prompt" placeholder="A neon shop sign that reads &quot;QWEN 2.1&quot;, rainy night, reflections on wet pavement"></textarea>
+
+      <div id="keywrap" style="display:none">
+        <label>API Key（直连脚本排障用）<span id="keyhint" style="color:var(--dim)"></span></label>
+        <input type="text" id="apikey" value="__QWEN_KEY_INJECT__" placeholder="服务端 QWEN_API_KEY 的值">
+      </div>
+      <div class="kbd" id="sessbar" style="margin:10px 0 2px">检查登录状态…</div>
+
+      <div id="negwrap" style="display:none">
+        <label>负面提示词 negative_prompt</label>
+        <input type="text" id="negative" placeholder="可选">
+      </div>
+      <div id="uplwrap" style="display:none">
+        <label>参考图（最多 10 张）
+          <span class="q">?<span class="tip">
+            <span class="tip-hd">参考图怎么用（官方 + 实测）</span>
+            <b>顺序有意义</b>：最后一张决定默认输出的宽高比（管线内部用 <code>image[-1]</code> 算尺寸）。
+            想让输出是竖构图，就把竖构图那张放在最后，或者直接手填宽高。<br>
+            <b>怎么在 prompt 里点名某张图</b>：官方管线会按你上传的顺序，自动给每张图生成
+            <code>&lt;image1&gt;</code>、<code>&lt;image2&gt;</code> 这样的占位符
+            （见 <code>prompt_template_ti2i</code>），官方多人物示例也是这么写的：
+            <i>“将&lt;image1&gt;中的人物和&lt;image2&gt;中的人物置入同一个场景”</i>。
+            所以想让某句话只作用在某张图上，就把 <code>&lt;imageN&gt;</code> 写进 prompt；
+            顺序即编号，顺序错了指代就错了。<br>
+            <b>多张 = 多主体合成</b>：官方示例把 3~6 张参考图喂进去，prompt 写
+            "These three characters are sitting around a campfire"，让不同人物出现在同一场景里。
+            这是这个模型被设计出来的用法，不是 hack。<br>
+            <b>身份保持</b>：官方说明会 "preserve identity for people and products"，
+            所以想让人物长相贴近你的参考图，就把他/她的图放进去。<br>
+            <b>尺寸限制</b>：本机 48G 全常驻时，编辑输出上限约 <b>1.92MP（1184×1600）</b>；
+            参考图越多、条件 token 越多，越容易吃紧。想要更大只能开 offload。
+            <span class="tip-ft">拖拽排序没做；想换顺序就先删掉再按新顺序重新添加。</span>
+          </span></span>
+        </label>
+        <div class="drop" id="drop">点击选择 或 拖拽图片到这里<input type="file" id="file" accept="image/*" multiple hidden></div>
+        <div class="thumbs" id="thumbs"></div>
+        <div class="chips" id="chips"></div>
+        <div class="kbd" id="refhint" style="margin-top:6px"></div>
+        <div class="kbd" id="ordernote" style="margin-top:6px"></div>
+      </div>
+
+      <div class="row">
+        <div><label>宽 width</label><input type="number" id="width" value="1024" step="16"></div>
+        <div><label>高 height</label><input type="number" id="height" value="1024" step="16"></div>
+      </div>
+      <label>快速档位 aspect_ratio（文生图用它定尺寸；编辑用它覆盖参考图尺寸）
+        <span class="q">?<span class="tip">
+          <span class="tip-hd">官方推荐的 2K 档位</span>
+          官方 README 给了这 7 个原生 2K 尺寸（模型是按这些比例训练的）：
+          <ul>
+            <li>1:1 → 2048×2048　4:3 → 2400×1792　3:4 → 1792×2400</li>
+            <li>3:2 → 2528×1696　2:3 → 1696×2528</li>
+            <li>16:9 → 2752×1536　9:16 → 1536×2752</li>
+          </ul>
+          <b>文生图</b>：选了就按档位出图，宽高输入框会置灰（后端按档位解析）。<br>
+          <b>编辑</b>：档位会覆盖参考图尺寸 —— 但注意<b>本机编辑上限约 1.92MP</b>，
+          直接选 2:3（4.29MP）会 OOM，会先被预检拦住并给提示。
+          <span class="tip-ft">官方 README：Supported Aspect Ratios（natively supports 2K resolution）</span>
+        </span></span>
+      </label>
+      <select id="ratio">
+        <option value="">不使用</option>
+        <option value="1:1">1:1 · 2048×2048</option>
+        <option value="4:3">4:3 · 2400×1792</option>
+        <option value="3:4">3:4 · 1792×2400</option>
+        <option value="3:2">3:2 · 2528×1696</option>
+        <option value="2:3">2:3 · 1696×2528</option>
+        <option value="16:9">16:9 · 2752×1536</option>
+        <option value="9:16">9:16 · 1536×2752</option>
+      </select>
+      <div class="kbd" id="rationote" style="display:none;margin-top:6px;color:var(--accent)"></div>
+
+      <label>推理步数 num_inference_steps <b id="stepv">30</b>
+        <span class="q">?<span class="tip">
+          <span class="tip-hd">步数怎么选</span>
+          官方默认 <b>40 步</b>（最高画质）。实测本机 <b>约 0.51 秒/步</b>（1024² 全常驻）：
+          <ul>
+            <li><b>20~25 步</b>：日常出图，约为 40 步一半时间，差别通常看不出来</li>
+            <li><b>40 步</b>：官方默认，细节/文字渲染更稳，用于成品</li>
+            <li><b>&lt;15 步</b>：只适合试构图，画面会糊</li>
+          </ul>
+          改变分辨率会等比放大每步耗时：2048² 每步约 2.6 秒（约 1024² 的 5 倍）。
+          <span class="tip-ft">官方 README：num_inference_steps 默认 40</span>
+        </span></span>
+      </label>
+      <input type="range" id="steps" min="4" max="60" value="30" oninput="stepv.textContent=this.value">
+
+      <label>随机种子 seed（留空=随机；填了可复现）</label>
+      <input type="number" id="seed" placeholder="例如 22">
+
+      <div id="outreswrap">
+        <label>编辑分辨率 output_resolution（仅编辑模式，默认 1024→输出 832×1248）</label>
+        <select id="outres">
+          <option value="">默认</option>
+          <option value="1024">1024</option>
+          <option value="1280">1280（约 2 倍耗时）</option>
+        </select>
+      </div>
+
+      <div class="chk"><input type="checkbox" id="transparent"><label for="transparent" style="margin:0">透明背景 RGBA PNG
+        <span class="q">?<span class="tip">
+          <span class="tip-hd">原生透明（不是抠图）</span>
+          模型内置 <b>64 通道 RGBA VAE</b>，alpha 是生成出来的，不是后处理抠的。
+          官方推荐提示词格式（本服务会自动补上这段前缀）：
+          <br><code>This is an RGBA image with transparency. &lt;你的描述&gt;. The image has alpha channel and the background is transparent.</code>
+          <br>适合：贴纸、图标、商品抠图、游戏素材、设计元素叠图。
+          <span class="tip-ft">官方 README：Native Transparency, Unified Creation and Editing</span>
+        </span></span>
+      </label></div>
+      <div class="chk"><input type="checkbox" id="async"><label for="async" style="margin:0">异步提交（排队，长任务用）</label></div>
+
+      <button id="run" onclick="run()">生成</button>
+      <button class="ghost" onclick="probe()">刷新状态</button>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------ 右侧结果区 -->
+  <div>
+    <div class="meta">
+      <div class="kpi"><div class="k">耗时</div><div class="v" id="k-time">—</div></div>
+      <div class="kpi"><div class="k">输出尺寸</div><div class="v" id="k-size">—</div></div>
+      <div class="kpi"><div class="k">seed</div><div class="v" id="k-seed">—</div></div>
+      <div class="kpi"><div class="k">峰值显存</div><div class="v" id="k-vram">—</div></div>
+    </div>
+
+    <div class="stage" id="stage">
+      <div class="hint">结果会显示在这里<br><span style="font-size:12px">首次请求若服务刚启动，需要等权重加载（约 2 分钟）</span></div>
+      <div class="bar"><i id="prog"></i></div>
+    </div>
+
+    <div class="acts">
+      <button class="ghost" id="dl" disabled onclick="download()">下载当前图</button>
+      <button class="ghost" id="copy" disabled onclick="copyPrompt()">复用当前参数</button>
+      <button class="ghost" onclick="clearLog()">清空日志</button>
+    </div>
+    <div class="log" id="log"></div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>历史（本次会话）</h2>
+      <div id="hist" style="color:var(--dim);font-size:12px">还没有记录</div>
+    </div>
+  </div>
+</div>
+
+<!-- 登录遮罩：服务端启用了鉴权而浏览器没有有效会话时显示 -->
+<div id="login" style="display:none">
+  <div class="loginbox">
+    <h3>需要 API Key</h3>
+    <p>输入服务端的 <code>QWEN_API_KEY</code>。<br>
+       登录后会拿到一个 <b>HttpOnly Cookie</b> 会话 —— 页面里的 JS 读不到它，也不会把 key 存在本地。</p>
+    <input type="password" id="loginkey" placeholder="API Key" autocomplete="current-password"
+           onkeydown="if(event.key==='Enter')submitLogin()">
+    <div id="loginerr" class="loginerr"></div>
+    <button id="loginbtn" onclick="submitLogin()">登录</button>
+    <div class="loginhint">有效期 24 小时，关掉浏览器不会自动失效。想立刻失效就点侧栏的「退出」。</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let mode = 't2i', files = [], lastB64 = null, lastMeta = {}, busy = false;
+const ROOT = location.origin + location.pathname.replace(/\/ui$/, '').replace(/\/$/, '');
+
+/* ---------------------------------------------------------------- 鉴权 */
+/* 浏览器端**不保存 API Key**：
+     服务端签发 HttpOnly Cookie 会话 —— JS 读不到，XSS 也偷不走，页面上没有任何 key 明文。
+     登录框只在需要时出现；「退出」会调 DELETE /v1/session 让服务端销毁会话。
+   KEY_MODE=inject 时服务端会把 key 填进输入框，只用于直连脚本排障（自己用才这样）。 */
+const KEY_MODE = "__QWEN_KEY_MODE__";
+let AUTHED = false;          // 是否已通过会话鉴权（或服务没启用鉴权）
+let AUTH_REQUIRED = false;   // 服务端是否启用了鉴权
+
+async function sessionState(){
+  try{
+    const r = await fetch(api('/v1/session'), {cache:'no-store'});
+    if (r.status === 401) return {authenticated:false, auth_required:true};
+    return await r.json();
+  }catch(e){ return {authenticated:false, auth_required:false, offline:true}; }
+}
+
+async function tryLogin(password){
+  const r = await fetch(api('/v1/session'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({key: password})});
+  const body = await r.json().catch(function(){ return {}; });
+  if (r.ok){
+    AUTHED = true;
+    log('登录成功：会话存在 HttpOnly Cookie 里（JS 读不到），有效期约 ' +
+        (body.expires_in_h || 24) + ' 小时');
+    return true;
+  }
+  log('登录失败：' + (body.detail || r.status), 'err');
+  return false;
+}
+
+async function logout(){
+  try{ await fetch(api('/v1/session'), {method:'DELETE'}); }catch(e){}
+  AUTHED = false;
+  log('已退出登录（服务端会话已销毁）');
+  showLogin('已退出。重新输入 API Key 继续使用。');
+}
+
+function showLogin(msg){
+  const ov = document.getElementById('login');
+  if (!ov) return;
+  ov.style.display = 'flex';
+  const err = document.getElementById('loginerr');
+  if (err) err.textContent = msg || '';
+  const inp = document.getElementById('loginkey');
+  if (inp){ inp.value = ''; setTimeout(function(){ inp.focus(); }, 60); }
+}
+
+function hideLogin(){
+  const ov = document.getElementById('login');
+  if (ov) ov.style.display = 'none';
+}
+
+async function submitLogin(){
+  const inp = document.getElementById('loginkey');
+  const btn = document.getElementById('loginbtn');
+  const err = document.getElementById('loginerr');
+  const v = ((inp && inp.value) || '').trim();
+  if (!v){ if (err) err.textContent = '请填入 API Key'; return; }
+  if (btn) btn.disabled = true;
+  if (err) err.textContent = '登录中…';
+  const ok = await tryLogin(v);
+  if (btn) btn.disabled = false;
+  if (ok){
+    if (inp) inp.value = '';
+    hideLogin();
+    probe();
+    refreshSessionBar();
+  } else if (err) {
+    err.textContent = 'API Key 不正确';
+  }
+}
+
+/* 只在 inject 模式下输入框里才有值；默认空，且不做任何本地持久化 */
+function keyFromInput(){
+  const el = $('apikey');
+  return el ? el.value.trim() : '';
+}
+
+/* ---------------------------------------------------------------- 表单记忆 */
+/* 只记**输入内容**，绝不记 API Key（key 走 HttpOnly Cookie 会话）。 */
+const FORM_STORE = "qwen_form_v1";
+
+function collectForm(){
+  return {
+    mode: mode,
+    prompt: $('prompt').value,
+    negative: $('negative').value,
+    width: $('width').value,
+    height: $('height').value,
+    ratio: $('ratio').value,
+    steps: $('steps').value,
+    seed: $('seed').value,
+    outres: $('outres').value,
+    transparent: $('transparent').checked,
+    async: $('async').checked,
+  };
+}
+
+function saveForm(){
+  try { localStorage.setItem(FORM_STORE, JSON.stringify(collectForm())); } catch(e){}
+}
+
+function loadForm(){
+  let f = null;
+  try { f = JSON.parse(localStorage.getItem(FORM_STORE) || 'null'); } catch(e){}
+  if (!f) return false;
+  const set = (id, v) => { const el = $(id); if (el && v !== undefined && v !== null) el.value = v; };
+  set('prompt', f.prompt);
+  set('negative', f.negative);
+  set('width', f.width);
+  set('height', f.height);
+  set('steps', f.steps);
+  set('seed', f.seed);
+  set('outres', f.outres);
+  if (f.transparent !== undefined) $('transparent').checked = !!f.transparent;
+  if (f.async !== undefined) $('async').checked = !!f.async;
+  setMode(f.mode === 'edit' ? 'edit' : 't2i');
+  if ($('ratio')) $('ratio').value = f.ratio || '';
+  syncRatio();
+  if ($('stepv')) $('stepv').textContent = $('steps').value;
+  return true;
+}
+
+/* 宽高联动（实测过的规则，别凭印象改）：
+     · 文生图：选了「快速档位」→ 宽高由后端按档位解析，输入框置灰并提示实际尺寸
+     · 编辑：宽高**可用**！显式传宽高是唯一能把编辑分辨率抬到 2K 的杠杆
+       （不传时：output_resolution 当像素预算，比例取自参考图，例如 768×1024+1024 → 896×1184）
+     档位在编辑模式下后端也支持（映射到官方档位），所以不再置灰。 */
+const RATIO_TBL = {'1:1':[2048,2048], '4:3':[2400,1792], '3:4':[1792,2400],
+                   '3:2':[2528,1696], '2:3':[1696,2528], '16:9':[2752,1536], '9:16':[1536,2752]};
+
+function syncRatio(){
+  const sel = $('ratio'), w = $('width'), h = $('height'), note = $('rationote');
+  if (!sel || !w || !h) return;
+  const picked = RATIO_TBL[sel.value];
+  const locked = (mode === 't2i') && !!picked;    // 只有文生图 + 选了档位才锁
+  [w, h].forEach(el => {
+    el.disabled = locked;
+    el.title = locked ? '已由快速档位决定；切回「不使用」才能手填'
+                      : (mode === 'edit'
+                         ? '留空 = 跟参考图一致（分辨率由 output_resolution 决定）；填了就用你的值（可出 2K）'
+                         : '手填像素尺寸（16 的倍数）');
+    el.style.opacity = locked ? .45 : 1;
+    el.style.cursor = locked ? 'not-allowed' : 'text';
+  });
+  if (!note) return;
+  let txt = '';
+  if (picked){
+    txt = `将按 ${picked[0]}×${picked[1]} 出图`
+        + (mode === 't2i' ? '（后端按档位解析，忽略上面的宽高）'
+                          : '（覆盖参考图尺寸；' + sizeAdvice(picked[0], picked[1]) + '）');
+  } else if (mode === 'edit'){
+    txt = '留空宽高：比例跟随参考图，分辨率由 output_resolution 决定';
+  }
+  // 手填尺寸的显存提示（编辑模式下尤其重要：2K 编辑会 OOM）
+  if (mode === 'edit' && !picked){
+    const wv = parseInt(w.value, 10), hv = parseInt(h.value, 10);
+    if (wv > 0 && hv > 0){
+      const adv = sizeAdvice(wv, hv);
+      if (adv){ txt = (txt ? txt + ' · ' : '') + adv; }
+    }
+  }
+  note.textContent = txt;
+  note.style.display = txt ? 'block' : 'none';
+  note.style.color = txt.includes('会 OOM') ? 'var(--bad)'
+                   : (txt.includes('接近') ? 'var(--warn)' : 'var(--accent)');
+}
+
+/* 编辑模式的像素上限按实测边界算：1.92MP 通过、2.17MP OOM（权重常驻 30.2G 的 48G 卡）。
+   有实时显存数据就按实时余量推，否则用实测阈值兜底。 */
+let LAST_FREE_GIB = null;
+const EDIT_OK_MP = 1.92, EDIT_BAD_MP = 2.17;
+
+function sizeAdvice(w, h){
+  const mp = (w * h) / 1e6;
+  if (mp <= EDIT_OK_MP) return '';
+  if (mp < EDIT_BAD_MP) return `${mp.toFixed(2)}MP 接近显存上限，可能失败`;
+  const sugg = LAST_FREE_GIB !== null
+    ? `当前空闲 ${LAST_FREE_GIB}G，编辑建议 ≤ ${EDIT_OK_MP}MP（约 1200×1600）`
+    : `编辑建议 ≤ ${EDIT_OK_MP}MP（约 1200×1600）`;
+  return `${mp.toFixed(2)}MP 会 OOM（实测 >${EDIT_BAD_MP}MP 必失败）；${sugg}`;
+}
+
+function bindFormPersistence(){
+  ['prompt','negative','width','height','steps','seed','outres','transparent','async','ratio']
+    .forEach(id => {
+      const el = $(id);
+      if (!el) return;
+      el.addEventListener('change', saveForm);
+      if (el.tagName === 'TEXTAREA' || el.type === 'text' || el.type === 'number'){
+        el.addEventListener('blur', saveForm);
+      }
+    });
+  const sel = $('ratio');
+  if (sel) sel.addEventListener('change', () => { syncRatio(); saveForm(); });
+  window.addEventListener('beforeunload', saveForm);
+}
+
+function authHeaders(extra){
+  const h = Object.assign({}, extra || {});
+  const k = keyFromInput();
+  if (k) h['Authorization'] = 'Bearer ' + k;
+  return h;
+}
+function withKey(url){ return url; }        // 会话走 Cookie，不再往 URL 里塞 key
+function api(path){ return ROOT + path; }
+
+async function on401(){
+  AUTHED = false;
+  log('会话失效或未登录（401）', 'err');
+  const st = await sessionState();
+  if (st.auth_required) showLogin('需要 API Key 才能使用。');
+  return false;
+}
+
+async function refreshSessionBar(){
+  const el = document.getElementById('sessbar');
+  if (!el) return;
+  if (!AUTH_REQUIRED){ el.textContent = '未启用鉴权'; return; }
+  const st = await sessionState();
+  if (st.authenticated){
+    const h = st.expires_in_s ? Math.round(st.expires_in_s / 3600) : '?';
+    el.innerHTML = '<span style="color:var(--good)">已登录</span> · 剩余约 ' + h +
+                   ' 小时 · <a href="#" onclick="logout();return false">退出</a>';
+  } else {
+    el.innerHTML = '<a href="#" onclick="showLogin();return false" style="color:var(--warn)">' +
+                   '未登录，点此输入 Key</a>';
+  }
+}
+
+/* ---------------------------------------------------------------- 日志 */
+function log(msg, kind){
+  const t = new Date().toLocaleTimeString();
+  const color = kind === 'err' ? 'var(--bad)' : kind === 'ok' ? 'var(--good)' : '#9aa4b2';
+  $('log').innerHTML += `<div style="color:${color}">[${t}] ${msg}</div>`;
+  $('log').scrollTop = 1e9;
+}
+function clearLog(){ $('log').innerHTML = ''; }
+
+/* ---------------------------------------------------------------- 模式 */
+function setMode(m){
+  mode = m;
+  $('tab-t2i').className = m === 't2i' ? 'on' : '';
+  $('tab-edit').className = m === 'edit' ? 'on' : '';
+  $('uplwrap').style.display = m === 'edit' ? 'block' : 'none';
+  $('negwrap').style.display = m === 't2i' ? 'block' : 'none';
+  $('outreswrap').style.display = m === 'edit' ? 'block' : 'none';
+  // 档位两种模式都可用：文生图=直接定尺寸；编辑=覆盖参考图尺寸（可出 2K）
+  const sel = $('ratio');
+  if (sel){
+    sel.disabled = false;
+    sel.title = m === 'edit'
+      ? '选了就用官方档位尺寸（2048×2048 等）覆盖参考图尺寸，约 2 倍耗时'
+      : '选了就按官方档位出图，忽略上面的宽高';
+    sel.style.opacity = 1;
+  }
+  if (m === 'edit'){
+    const orw = $('outreswrap');
+    if (orw) orw.title = '不填宽高时，这个值就是像素预算（比例跟随参考图）';
+  }
+  syncRatio();
+}
+
+/* ---------------------------------------------------------------- 进度 */
+function fmtDur(s){
+  if (s === null || s === undefined || isNaN(s)) return '—';
+  if (s < 60) return s.toFixed(1) + 's';
+  const m = Math.floor(s / 60), r = Math.round(s % 60);
+  return m + 'm' + (r < 10 ? '0' : '') + r + 's';
+}
+
+/* 生成期间的进度面板：步数来自服务端 per-step 回调，不是按时间猜的 */
+function progressHTML(){
+  return '<div class="prog">' +
+    '<div class="prog-top"><span class="prog-step" id="p-step">等待服务端…</span>' +
+    '<span class="prog-pct" id="p-pct">0%</span></div>' +
+    '<div class="bar"><i id="prog"></i></div>' +
+    '<div class="prog-grid">' +
+      '<span>已用</span><b id="p-elapsed">—</b>' +
+      '<span>每步</span><b id="p-perstep">—</b>' +
+      '<span>预计剩余</span><b id="p-eta">—</b>' +
+    '</div>' +
+    '<div class="prog-note" id="p-note">正在编码提示词…（不计入步数）</div></div>';
+}
+
+function applyProgress(p){
+  const bar = document.getElementById('prog');
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  if (!p){ set('p-step', '排队中…'); return; }
+  const done = p.steps_done != null ? p.steps_done : (p.step || 0);
+  const total = p.total || 0;
+  const pct = (p.pct !== undefined && p.pct !== null) ? p.pct : (total ? 100 * done / total : 0);
+  if (bar) bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  set('p-pct', pct.toFixed(0) + '%');
+  if (p.status === 'queued') set('p-step', '排队中，前面还有任务在跑…');
+  else set('p-step', '已走 ' + done + ' / ' + total + ' 步');
+  set('p-elapsed', fmtDur(p.elapsed_s));
+  set('p-perstep', p.per_step_s ? fmtDur(p.per_step_s) : '—');
+  set('p-eta', (p.eta_s === null || p.eta_s === undefined) ? '—' : fmtDur(p.eta_s));
+  const note = document.getElementById('p-note');
+  if (!note) return;
+  if (p.callback_unavailable){
+    note.textContent = '该 diffusers 版本不上报步进，进度按时间推算';
+  } else if (done === 0){
+    note.textContent = '排队 / 准备中… 第 1 步包含提示词编码，会比后面慢一些';
+  } else {
+    const left = Math.max(0, total - done);
+    note.textContent = '还剩 ' + left + ' 步 · 每步约 ' + fmtDur(p.per_step_s) +
+      (p.min_step_s ? '（实测区间 ' + fmtDur(p.min_step_s) + '~' + fmtDur(p.max_step_s) + '）' : '');
+  }
+}
+
+/* 单向轮询：同一时刻只允许一个请求在飞 */
+function makePoller(pick){
+  let stopped = false, ticking = false;
+  const tick = async () => {
+    if (stopped || ticking) return;
+    ticking = true;
+    try { const list = await get('/v1/progress'); const p = pick(list.data); if (p) applyProgress(p); }
+    catch(_){}
+    ticking = false;
+  };
+  const timer = setInterval(tick, 600);
+  tick();
+  return { stop(){ stopped = true; clearInterval(timer); } };
+}
+
+/* ---------------------------------------------------------------- 上传 */
+$('drop').onclick = () => $('file').click();
+$('file').onchange = e => addFiles(e.target.files);
+['dragenter','dragover'].forEach(ev => $('drop').addEventListener(ev, e => {
+  e.preventDefault(); $('drop').classList.add('hot'); }));
+['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => {
+  e.preventDefault(); $('drop').classList.remove('hot'); }));
+$('drop').addEventListener('drop', e => addFiles(e.dataTransfer.files));
+
+function addFiles(list){
+  [...list].forEach(f => { if (files.length < 10 && f.type.startsWith('image/')) files.push(f); });
+  renderThumbs();
+}
+function renderThumbs(){
+  $('thumbs').innerHTML = files.map((f,i) => `
+    <div class="thumb" title="${f.name} &#10;提示词里用 &lt;image${i+1}&gt; 引用它">
+      <img src="${URL.createObjectURL(f)}"><i>image${i+1}</i>
+      <b onclick="rmFile(${i})" title="移除">×</b></div>`).join('');
+  renderChips();
+  // 最后一张决定默认输出比例（管线用 image[-1] 算尺寸，实测过）
+  const note = $('ordernote');
+  if (!note) return;
+  if (files.length === 0){ note.textContent = ''; return; }
+  const last = files[files.length - 1];
+  note.innerHTML = files.length === 1
+    ? `输出比例将跟随这张图（<b>${last.name}</b>），除非你在下面手填宽高`
+    : `<b>${files.length}</b> 张参考图 → 多主体合成；默认输出比例跟随<b>最后一张</b>（${last.name}）。想换比例就调整顺序或手填宽高。`;
+}
+/* 官方多参考图约定：按上传顺序叫 <image1> <image2> ...（见 pipeline prompt_template_ti2i
+   自动注入的占位符，以及官方 prompt_rewrite edit_example 的 <image1>/<image2> 写法）。 */
+function insertTag(tag){
+  const ta = $('prompt');
+  const s = (ta.selectionStart !== null && ta.selectionStart !== undefined)
+            ? ta.selectionStart : ta.value.length;
+  const e = (ta.selectionEnd !== null && ta.selectionEnd !== undefined)
+            ? ta.selectionEnd : s;
+  ta.value = ta.value.slice(0, s) + tag + ta.value.slice(e);
+  ta.focus();
+  try { ta.setSelectionRange(s + tag.length, s + tag.length); } catch(err){}
+}
+function renderChips(){
+  const box = $('chips'), hint = $('refhint');
+  if (!box) return;
+  if (files.length === 0){
+    box.innerHTML = '';
+    if (hint) hint.innerHTML = '<span class="chiphint">上传参考图后，这里会出现 '
+      + '<code>image1</code>/<code>image2</code> 按钮，点一下就插到 prompt 的光标处。</span>';
+    return;
+  }
+  box.innerHTML = '<span class="chiphint">插入引用：</span>'
+    + files.map((f,i) => `<span class="chip" onclick="insertTag('&lt;image${i+1}&gt;')" `
+        + `title="插入 &lt;image${i+1}&gt; 到 prompt 光标处&#10;${f.name}">&lt;image${i+1}&gt;</span>`).join('');
+  if (hint) hint.innerHTML = '<span class="chiphint">'
+    + '写法和官方一致：按上传顺序就是 <code>image1</code>、<code>image2</code>…，'
+    + '想让某句话只作用在某张图上，就把它写进 prompt（点上面的按钮插到光标处）。'
+    + '不写也能用，写清楚更可控。</span>';
+}
+function rmFile(i){ files.splice(i,1); renderThumbs(); }
+
+/* ---------------------------------------------------------------- 状态 */
+async function probe(){
+  try{
+    const r = await fetch(withKey(api('/health')), {cache:'no-store'});
+    if (r.status === 401){
+      $('conn').textContent = '需要 API Key'; $('conn').className = 'pill bad';
+      $('gpuinfo').textContent = '—'; $('vram').textContent = '—';
+      return null;
+    }
+    const h = await r.json();
+    $('conn').textContent = h.loaded ? '服务就绪' : (h.mock ? '占位模式' : '加载中…');
+    $('conn').className = 'pill ' + (h.loaded ? 'ok' : 'bad');
+    if (h.gpu && h.gpu.available){
+      $('gpuinfo').textContent = h.gpu.name + ' · ' + h.gpu.total_gb + 'G';
+      $('vram').textContent = '空闲 ' + h.gpu.free_gb + 'G / 已用 ' + h.gpu.reserved_gb + 'G';
+      $('k-vram').textContent = (h.peak_allocated_gib || 0) + 'G';
+      LAST_FREE_GIB = h.gpu.free_gb;
+      syncRatio();                     // 用实时余量刷新编辑尺寸提示
+    } else {
+      $('gpuinfo').textContent = '无 GPU';
+      $('vram').textContent = h.mock ? 'mock 模式' : '—';
+    }
+    $('where').textContent = h.model + ' · ' + h.dtype + ' · offload=' + h.offload;
+    return h;
+  }catch(e){
+    $('conn').textContent = '连不上'; $('conn').className = 'pill bad';
+    return null;
+  }
+}
+
+/* ---------------------------------------------------------------- 生成 */
+function params(){
+  const p = {
+    prompt: $('prompt').value.trim(),
+    num_inference_steps: parseInt($('steps').value, 10),
+    output_format: 'png',
+    transparent: $('transparent').checked,
+  };
+  const ratio = $('ratio').value;
+  if (ratio) p.aspect_ratio = ratio;
+  else { p.width = parseInt($('width').value,10); p.height = parseInt($('height').value,10); }
+  if ($('seed').value !== '') p.seed = parseInt($('seed').value, 10);
+  if ($('negative').value.trim()) p.negative_prompt = $('negative').value.trim();
+  return p;
+}
+
+async function run(){
+  if (busy) return;
+  const p = params();
+  if (!p.prompt){ log('提示词不能为空', 'err'); return; }
+  if (mode === 'edit' && files.length === 0){ log('编辑模式至少要一张参考图', 'err'); return; }
+  if (!AUTHED && AUTH_REQUIRED){ log('还没登录：请在弹出的登录框里填入 API Key', 'err'); showLogin(); return; }
+
+  busy = true;
+  const btn = $('run');
+  if (btn) btn.disabled = true;
+  // 注意：这些节点每次生成都会被重建，所有引用都要按"可能不存在"处理，
+  // 否则一次异常就会跳过 finally，把按钮永久锁死（实测过的 bug）
+  const t0 = performance.now();
+  const myId = 'req_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  $('stage').innerHTML = progressHTML();
+  log(`提交 ${mode === 't2i' ? '文生图' : '图像编辑'}：steps=${p.num_inference_steps} ` +
+      `${p.aspect_ratio || (p.width + 'x' + p.height)}` + (p.seed !== undefined ? ` seed=${p.seed}` : ''));
+
+  let poller = null, tick = null;
+  try{
+    poller = makePoller(list => {
+      const mine = (list || []).find(x => x.request_id === myId);
+      if (mine) return mine;
+      const running = (list || []).filter(x => x.status === 'running');
+      return running.length ? running[0] : null;
+    });
+
+    let data, elapsed;
+    if ($('async').checked){
+      p.request_id = myId;
+      const j = await post('/v1/jobs', p);
+      log('已入队 job=' + j.id + '，轮询中…');
+      let last = '';
+      while (true){
+        await new Promise(r => setTimeout(r, 1500));
+        const s = await get('/v1/jobs/' + j.id);
+        if (s.status !== last){ log('  ' + s.status + ' …'); last = s.status; }
+        if (s.status === 'succeeded'){ data = {data: s.result}; break; }
+        if (s.status === 'failed' || s.status === 'canceled') throw new Error(JSON.stringify(s.error || s.status));
+      }
+      elapsed = (performance.now() - t0) / 1000;
+    } else if (mode === 't2i'){
+      p.request_id = myId;
+      const doPost = () => fetch(withKey(api('/v1/images/generations')), {
+        method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
+        body: JSON.stringify(p)});
+      let r = await doPost();
+      if (r.status === 401 && on401()) r = await doPost();       // 重新输入 key 后重试
+      if (!r.ok) throw new Error(await r.text());
+      data = await r.json(); elapsed = (performance.now() - t0) / 1000;
+    } else {
+      const fd = new FormData();
+      fd.append('prompt', p.prompt);
+      fd.append('num_inference_steps', p.num_inference_steps);
+      if (p.seed !== undefined) fd.append('seed', p.seed);
+      fd.append('transparent', p.transparent);
+      if ($('outres').value) fd.append('output_resolution', $('outres').value);
+      // 编辑：宽高/档位留空则跟随参考图；填了就是分辨率杠杆（可出 2K）
+      if ($('ratio').value) fd.append('aspect_ratio', $('ratio').value);
+      else {
+        if ($('width').value) fd.append('width', $('width').value);
+        if ($('height').value) fd.append('height', $('height').value);
+      }
+      fd.append('request_id', myId);
+      files.forEach(f => fd.append('image', f, f.name));
+      const doEdit = () => fetch(withKey(api('/v1/images/edits')),
+                                 {method:'POST', headers: authHeaders(), body: fd});
+      let r = await doEdit();
+      if (r.status === 401 && on401()) r = await doEdit();
+      if (!r.ok) throw new Error(await r.text());
+      data = await r.json(); elapsed = (performance.now() - t0) / 1000;
+    }
+
+    const item = data.data[0];
+    lastB64 = item.b64_json;
+    lastMeta = {prompt: p.prompt, seed: item.seed, size: item.width + 'x' + item.height,
+                steps: p.num_inference_steps};
+    $('stage').innerHTML = `<img id="out" src="data:image/png;base64,${item.b64_json}">`;
+    $('k-time').textContent = elapsed.toFixed(1) + 's';
+    $('k-size').textContent = item.width + '×' + item.height;
+    $('k-seed').textContent = item.seed ?? '—';
+    $('dl').disabled = false; $('copy').disabled = false;
+    const tm = item.timing || {};
+    const perStep = tm.per_step_s ? ` · 每步 ${tm.per_step_s}s` : '';
+    log(`完成：${item.width}×${item.height} · ${elapsed.toFixed(1)}s${perStep}`
+        + (tm.prep_s ? `（其中准备开销 ${tm.prep_s}s）` : ''), 'ok');
+    pushHist(item, elapsed);
+    saveForm();                    // 出图成功后连同这次用的参数一起记住
+    probe();
+  }catch(e){
+    $('stage').innerHTML = '<div class="hint" style="color:var(--bad)">生成失败<br>' +
+                           String(e).slice(0,300) + '</div>';
+    log('失败：' + String(e).slice(0,300), 'err');
+  }finally{
+    // 这里绝不能再抛异常：一旦抛出，busy 就永远是 true、按钮永远 disabled
+    try { if (poller) poller.stop(); } catch(_){}
+    try { if (tick) clearInterval(tick); } catch(_){}
+    busy = false;
+    const b = $('run');
+    if (b) b.disabled = false;
+  }
+}
+
+async function post(url, body){
+  const r = await fetch(withKey(api(url)), {
+    method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
+    body: JSON.stringify(body)});
+  if (r.status === 401 && on401()) return post(url, body);      // 重新输入后再来一次
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function get(url){
+  const r = await fetch(withKey(api(url)), {headers: authHeaders()});
+  if (r.status === 401 && on401()) return get(url);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function download(){
+  if (!lastB64) return;
+  const a = document.createElement('a');
+  a.href = 'data:image/png;base64,' + lastB64;
+  a.download = 'qwen_' + Date.now() + '.png'; a.click();
+}
+function copyPrompt(){
+  $('prompt').value = lastMeta.prompt || '';
+  if (lastMeta.seed !== undefined) $('seed').value = lastMeta.seed;
+  if (lastMeta.steps) { $('steps').value = lastMeta.steps; stepv.textContent = lastMeta.steps; }
+  log('已复用上次参数（seed=' + lastMeta.seed + '）');
+}
+function pushHist(item, elapsed){
+  window._hist = window._hist || [];
+  window._hist.unshift({seed:item.seed, size:item.width + 'x' + item.height,
+                        t:elapsed.toFixed(1), b64:item.b64_json});
+  window._hist = window._hist.slice(0, 12);
+  $('hist').innerHTML = `<table><tr><th>#</th><th>尺寸</th><th>seed</th><th>耗时</th><th></th></tr>` +
+    window._hist.map((h,i) => `<tr><td>${i+1}</td><td>${h.size}</td><td>${h.seed}</td>
+      <td>${h.t}s</td><td><img src="data:image/png;base64,${h.b64}"
+      style="width:54px;border-radius:5px;cursor:pointer" onclick="showHist(${i})"></td></tr>`).join('') +
+    '</table>';
+}
+function showHist(i){
+  const h = window._hist[i]; if (!h) return;
+  lastB64 = h.b64;
+  $('stage').innerHTML = `<img src="data:image/png;base64,${h.b64}">`;
+  $('k-size').textContent = h.size.replace('x','×'); $('k-seed').textContent = h.seed;
+  $('k-time').textContent = h.t + 's'; $('dl').disabled = false;
+}
+
+setMode('t2i');
+(async function boot(){
+  // 1) 恢复上次的输入内容（不含 key —— key 走 HttpOnly Cookie 会话）
+  const restored = loadForm();
+  bindFormPersistence();
+  syncRatio();
+
+  if (KEY_MODE === 'inject'){
+    const kw = $('keywrap');
+    if (kw) kw.style.display = 'block';
+    if ($('keyhint')) $('keyhint').textContent = '（服务端已填好）';
+  }
+
+  // 2) 会话状态：需要鉴权且未登录 → 弹登录框
+  const st = await sessionState();
+  AUTH_REQUIRED = !!st.auth_required;
+  AUTHED = !!st.authenticated;
+  if (AUTH_REQUIRED && !AUTHED) showLogin('这台机器的服务需要 API Key。');
+  if (restored) log('已恢复上次填写的参数（输入内容存在浏览器本地，不包含 Key）');
+
+  await probe();
+  refreshSessionBar();
+  setInterval(probe, 15000);
+  setInterval(refreshSessionBar, 60000);
+})();
+</script>
+</body>
+</html>

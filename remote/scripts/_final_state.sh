@@ -1,0 +1,18 @@
+export PATH=/root/miniconda3/bin:$PATH
+echo '--- health ---'
+curl -s -m 10 localhost:6006/health
+echo
+echo '--- t2i ---'
+python - <<'PY'
+import base64, requests
+B="http://127.0.0.1:6006"
+r=requests.post(B+"/v1/images/generations",json={"prompt":"final env check","width":256,"height":256,"num_inference_steps":4},timeout=60)
+print("t2i:", r.status_code, "png bytes:", len(base64.b64decode(r.json()["data"][0]["b64_json"])))
+print("models:", requests.get(B+"/v1/models",timeout=10).json()["data"][0]["id"])
+PY
+echo '--- checkpoint summary ---'
+du -sh /root/autodl-tmp/Qwen-Image-2.1
+find /root/autodl-tmp/Qwen-Image-2.1 -name '*.incomplete' | wc -l
+df -h / /root/autodl-tmp | sed -n '1,4p'
+echo '--- keep service running for GPU boot ---'
+pgrep -af 'service/server.py' | grep -v pgrep

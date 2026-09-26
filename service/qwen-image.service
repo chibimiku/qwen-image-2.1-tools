@@ -1,0 +1,23 @@
+[Unit]
+Description=Qwen-Image-2.1 HTTP API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+# 48G 显存：全 BF16 常驻，参考图多/开 2K 若 OOM 再改成 model
+Environment=QWEN_OFFLOAD=none
+Environment=QWEN_TORCH_DTYPE=bfloat16
+Environment=QWEN_TILE_VAE=0
+Environment=QWEN_MODEL_DIR=/root/autodl-tmp/Qwen-Image-2.1
+Environment=QWEN_PORT=6006
+WorkingDirectory=/root/qwen-image-2.1
+ExecStart=/root/miniconda3/bin/python /root/qwen-image-2.1/service/server.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/root/qwen-image-2.1/logs/service.log
+StandardError=append:/root/qwen-image-2.1/logs/service.log
+
+[Install]
+WantedBy=multi-user.target
