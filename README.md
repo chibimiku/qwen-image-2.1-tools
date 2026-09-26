@@ -229,7 +229,9 @@ python tools/autodl_ssh.py run "nvidia-smi"
 - [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) —— 性能表、显存账、每一轮实验的数据与结论
 - [docs/CHANGELOG.md](docs/CHANGELOG.md) —— 脚本目录调整、修过的 bug、接口变更
 - `reports/matrix-report.html` —— 指令响应矩阵报告
-- `test-data/report.html` —— 人脸补偿 + 表情专项分步对比报告
+- `reports/face-fix-report.html` —— 人脸补偿 + 表情专项分步对比报告
+- [docs/OUTPUTS-INVENTORY.md](docs/OUTPUTS-INVENTORY.md) —— **生成产物清单**（本地产物与实例输出的逐项盘点，含清理命令）
 
-> `test-data/`、`reports/`、`tmp_refs/` 里是约 300 MB 的实验产物，**没有进仓库**（见 `.gitignore`）。
+> `test-data/`、`reports/`、`tmp_refs/` 里是约 316 MB 的实验产物，**没有进仓库**（见 `.gitignore`）。
 > 需要图就照 `docs/MEASUREMENTS.md` 里的命令重跑，或自己留着本地副本。
+> 随时用 `python tools/inventory_outputs.py` 重新盘点、`--write` 更新清单。
