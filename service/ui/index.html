@@ -691,12 +691,24 @@ function syncFollowRef(){
     el.title = on ? '正在跟随参考图尺寸；取消勾选才能手填（手填是抬到 2K 的唯一杠杆）'
                   : '手填像素尺寸（32 的倍数更好对齐；本机编辑上限约 1.92MP）';
   });
-  if (on && $('ratio')) $('ratio').value = '';
+  // 档位也要一起置灰：跟随开着时比例由参考图决定，档位根本轮不到生效。
+  // 以前只是把它静默清空 —— 用户一选就悄悄切回档位模式，看不出发生了什么。
+  const sel = $('ratio');
+  if (sel){
+    sel.disabled = on;
+    sel.style.opacity = on ? .45 : 1;
+    sel.style.cursor = on ? 'not-allowed' : '';
+    sel.title = on
+      ? '正在跟随参考图尺寸：比例由参考图决定，取消勾选「跟随参考图尺寸」才能用档位'
+      : (mode === 'edit'
+         ? '选了就用官方档位尺寸（超显存会按同比例自动缩）'
+         : '选了就按官方档位出图，忽略上面的宽高');
+  }
   const note = $('rationote');
   if (note){
     note.textContent = on
-      ? '正在跟随参考图尺寸：请求不带宽高，比例取最后一张参考图，分辨率由 output_resolution 决定'
-      : '已解除跟随：下面填的宽高会直接用（本机编辑上限约 1.92MP）';
+      ? '正在跟随参考图尺寸：比例和分辨率都由参考图 + output_resolution 决定，档位用不上'
+      : '已解除跟随：下面填的宽高或档位会直接用（本机编辑上限约 1.92MP，超了会自动同比例缩）';
     note.style.display = 'block';
     note.style.color = 'var(--accent)';
   }
@@ -1165,9 +1177,13 @@ async function batchGenerateOne(prompt){
     fd.append('transparent', $('transparent').checked);
     fd.append('request_id', rid);
     if ($('outres').value) fd.append('output_resolution', $('outres').value);
+    // 与单张同一套优先级：跟随参考图 > 档位 > 手填宽高
     const follow = followRefOn();
-    if ($('ratio').value) fd.append('aspect_ratio', $('ratio').value);
-    else if (!follow){
+    if (follow) {
+      // 不发尺寸，交给后端按 output_resolution + 参考图比例推
+    } else if ($('ratio').value) {
+      fd.append('aspect_ratio', $('ratio').value);
+    } else {
       if ($('width').value) fd.append('width', $('width').value);
       if ($('height').value) fd.append('height', $('height').value);
     }
@@ -1385,11 +1401,15 @@ async function run(){
       fd.append('anatomy_check', p.anatomy_check);
       fd.append('anatomy_max_retries', p.anatomy_max_retries);
       if ($('outres').value) fd.append('output_resolution', $('outres').value);
-      // 编辑：宽高/档位留空则跟随参考图；填了就是分辨率杠杆（可出 2K）
-      // 跟随参考图时不发宽高（HTML 预填的 1024 会覆盖比例 —— 实测踩过的坑）
+      // 编辑模式的尺寸优先级：跟随参考图 > 档位 > 手填宽高。
+      // **跟随必须排在档位前面**：以前档位先判，导致跟随开着时选档位会悄悄覆盖掉跟随
+      // （界面显示"跟随中"，实际却按档位出图）。现在跟随开着就只发 output_resolution。
       const follow = followRefOn();
-      if ($('ratio').value) fd.append('aspect_ratio', $('ratio').value);
-      else if (!follow) {
+      if (follow) {
+        // 什么都不发：让后端用 output_resolution + 参考图比例推
+      } else if ($('ratio').value) {
+        fd.append('aspect_ratio', $('ratio').value);
+      } else {
         if ($('width').value) fd.append('width', $('width').value);
         if ($('height').value) fd.append('height', $('height').value);
       }
