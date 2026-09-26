@@ -381,7 +381,9 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                 kwargs.pop("width", None)
                 kwargs.pop("height", None)
         if req.get("guidance_scale") is not None:
-            kwargs["guidance_scale"] = float(req["guidance_scale"])
+            # 管线**没有** guidance_scale 这个参数（只有 true_cfg_scale），
+            # 以前直接往 kwargs 里塞会 TypeError 500。这里做映射，两个名字都收。
+            kwargs["true_cfg_scale"] = float(req["guidance_scale"])
         if req.get("negative_prompt"):
             kwargs["negative_prompt"] = req["negative_prompt"]
         if req.get("output_resolution"):
@@ -421,6 +423,14 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
             _probe = inspect.signature(pipe.__call__).parameters
             _takes_cb = ("callback_on_step_end" in _probe
                          or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in _probe.values()))
+            # 只把管线真正接受的参数传下去。参数名对不上（比如有人按通用叫法写 guidance_scale）
+            # 以前会一路走到模型内部才炸成 TypeError 500；现在在门口拦掉并记日志。
+            if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in _probe.values()):
+                _dropped = [k for k in kwargs if k not in _probe]
+                for k in _dropped:
+                    kwargs.pop(k, None)
+                if _dropped:
+                    print(f"[warn] pipeline 不认识这些参数，已丢弃：{_dropped}", flush=True)
         except Exception:                                        # noqa: BLE001
             _takes_cb = True
         if _takes_cb:
@@ -744,7 +754,9 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
         aspect = g("aspect_ratio")
         # 这两个以前只在 JSON 分支解析，multipart 会静默丢掉 → 两条路径行为不一致。
         neg = g("negative_prompt")
-        gscale = float(g("guidance_scale")) if g("guidance_scale") is not None else None
+        # guidance_scale 是常见叫法，但管线实际参数名是 true_cfg_scale；两个都收。
+        _gs = g("true_cfg_scale") or g("guidance_scale")
+        gscale = float(_gs) if _gs is not None else None
         request_id = str(g("request_id") or "") or rid_hdr
         for key in ("image", "image[]"):
             for up in f.getlist(key):

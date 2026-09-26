@@ -32,12 +32,18 @@
 - 缩略图角标标出编号（`image1`、`image2`…），`title` 提示可以用它引用。
 - 参考图 tooltip 补一段引用语法，附官方多人物示例原文。
 
-### 3. 核查出的两个真问题（已修）
+### 3. 核查出的三个真问题（已修）
 
 | 问题 | 现象 | 修法 |
 |---|---|---|
 | multipart 丢字段 | `negative_prompt` / `guidance_scale` 只有 JSON 分支解析过，用 multipart 传会静默失效 | multipart 分支补上同名字段 |
+| **`guidance_scale` 根本不存在** | 管线签名里只有 `true_cfg_scale`。API 文档写着能传 `guidance_scale`，真传了就是 `TypeError: unexpected keyword argument 'guidance_scale'` 500（JSON 路径同样中招，只是从没被测过） | ① `guidance_scale` 映射到 `true_cfg_scale`，两个名字都收；② 调用前用 `inspect.signature(pipe.__call__)` 取真实参数表，不认识的 kwargs 一律丢弃并打日志 |
 | 半截尺寸 | 只填 width 或只填 height 时带着 `None` 进预检与管线，在很远的地方炸 `NoneType` | 按参考图比例补成完整一对并 32 对齐 |
+
+改动后实测（`remote/scripts/_fix_check.sh`）：
+- T1 multipart + `negative_prompt` + `guidance_scale` → **512×512 出图，2.8s**（原 500）
+- T2 只给 width + 参考图 → **HTTP 200**（原 500）
+- T3 `/ui` 带上 `renderChips`/`insertTag` → 4 处命中
 
 核查明细（含"确认不用改"的 7 项与 3 条已知限制）见 [UI-AUDIT.md](UI-AUDIT.md)。
 

@@ -18,7 +18,7 @@
 | 8 | `guidance_scale` | UI 未暴露 | 原来只在 JSON 分支解析 | ⚠️ **已修**（见下） |
 | 9 | `size` | UI 未暴露 | `_resolve_size` 支持 `"2048x2048"` | ✅ 一致（UI 用档位/宽高即可） |
 
-## 二、已修的两处
+## 二、已修的三处
 
 ### 2.1 multipart 会静默丢掉 `negative_prompt` / `guidance_scale`
 
@@ -32,7 +32,30 @@ neg = g("negative_prompt")
 gscale = float(g("guidance_scale")) if g("guidance_scale") is not None else None
 ```
 
-### 2.2 只给一边尺寸（只填宽或只填高）会半截传下去
+### 2.2 `guidance_scale` 根本不存在 —— 传了就 500（本轮真实测出来的）
+
+`docs/API.md` 里一直写着「`guidance_scale` 官方推荐 CFG=1 时可直接给 1.0」，
+服务端也老老实实往管线 kwargs 里塞。但远端的管线签名里**没有这个参数**：
+
+```text
+params: 23 → prompt, image, negative_prompt, true_cfg_scale, height, width,
+             num_inference_steps, sigmas, num_images_per_prompt, generator, latents,
+             prompt_embeds, prompt_embeds_mask, negative_prompt_embeds,
+             negative_prompt_embeds_mask, output_type, return_dict, attention_kwargs,
+             callback_on_step_end, callback_on_step_end_tensor_inputs,
+             output_resolution, use_kv_cache
+has guidance_scale : False
+has true_cfg_scale : True
+```
+
+所以这是**一条一直坏着的文档 + 一条一直 500 的代码路径**（JSON 路径同样中招，
+只是从来没人真的传过）。修法两层：
+
+1. `guidance_scale` 映射到 `true_cfg_scale`，两个名字都收（multipart 与 JSON 都行）。
+2. **门口拦截**：调用前用 `inspect.signature(pipe.__call__)` 取真实参数表，
+   kwargs 里不认识的一律丢弃并打日志。以后再有类似的名字对不上，是丢参数 + 一行警告，
+   而不是一整个 500。
+### 2.3 只给一边尺寸（只填宽或只填高）会半截传下去
 
 `width=1200, height=(空)` 这种请求，原来 `width and height` 为假 → 走推导分支补成一对；
 但 `width=1200` 且**有参考图**时 `explicit=True`，就带着 `height=None` 进了预检和管线，
@@ -47,7 +70,7 @@ if bool(width) != bool(height):
     height = round(raw_h / 32) * 32
 ```
 
-回归测试：`tools/check_server_size.py`（语法 + 官方尺寸公式 7 例 + 补全逻辑 8 例）。
+回归测试：`tools/check_server_size.py`（语法 + 官方尺寸公式 9 例 + 补全逻辑 8 例）。
 
 ## 三、文案不精确但不影响使用的一处
 

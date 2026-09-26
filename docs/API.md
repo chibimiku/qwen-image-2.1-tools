@@ -221,8 +221,9 @@ curl -H "Cookie: $COOKIE" https://<入口>/v1/models
 | `seed` | int | 随机 | 复现用 |
 | `transparent` | bool | false | true 时服务自动补官方透明提示词前缀，输出 RGBA |
 | `output_format` | string | `png` | `png` / `jpeg` / `webp` |
-| `guidance_scale` | float | 管线默认 | 官方推荐 CFG=1 时可直接给 1.0 |
-| `negative_prompt` | string | — | 可选 |
+| `guidance_scale` | float | — | **别名**，服务端映射到真实的 `true_cfg_scale`（管线并没有叫 guidance_scale 的参数） |
+| `true_cfg_scale` | float | 1.0 | 管线真实参数名。`>1` 且同时给了 `negative_prompt` 才启用 CFG；官方默认 1.0 = 不用引导 |
+| `negative_prompt` | string | — | 可选；JSON 与 multipart 两种请求体都支持 |
 
 ```bash
 curl -s -X POST "http://127.0.0.1:6006/v1/images/generations" \
