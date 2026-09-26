@@ -2,7 +2,7 @@
 
 > 核查对象：`service/ui/index.html` + `service/server.py`
 > 时间：2026-09-26　方法：逐项对着服务端解析代码与官方源码/README 核对，不靠印象
-> 结论：**7 项正确、2 项已修、1 项已知限制**
+> 结论：**7 项正确、4 项已修、1 项已知限制**
 
 ## 一、参数选项核查
 
@@ -11,14 +11,14 @@
 | 1 | `num_inference_steps` | 滑块 4~60，默认 **30** | multipart `int(g("num_inference_steps", 40))` → 服务端默认 40 | ✅ 正确（UI 自己给 30，官方默认 40，两者都合理） |
 | 2 | `aspect_ratio` | 7 档：1:1 2048² / 4:3 2400×1792 / 3:4 1792×2400 / 3:2 2528×1696 / 2:3 1696×2528 / 16:9 2752×1536 / 9:16 1536×2752 | `ASPECT_RATIOS` 同名同值，命中即覆盖 width/height | ✅ 正确，与官方 README「Supported Aspect Ratios」逐字一致 |
 | 3 | `width` / `height` | 默认 1024×1024，step 16 | `_resolve_size`：两边都缺 → 2048² | ✅ 正确（UI 在 t2i 下总会给显式值） |
-| 4 | `seed` | 留空=随机 | `int(g("seed")) if ... is not None else None` | ✅ 正确（空串→None→随机） |
+| 4 | `seed` | 留空或**负数**=随机；出图后不回填输入框，点历史缩略图才填回该图 seed | `_norm_seed()`：`None` / `""` / `<0` 一律 → `None`（服务端自己掷） | ✅ 正确（负数以前会被原样送进 generator，见 §2.4） |
 | 5 | `transparent` | 复选 | `str(g("transparent","")).lower() in ("1","true","on","yes")` | ✅ 正确（UI 传 `true`） |
-| 6 | `output_resolution` | 仅编辑模式显示，1024 / 1280 | 有参考图时决定像素预算，服务端自己算完再把显式宽高传下去 | ✅ 正确，但**说明文案不精确**（见下） |
+| 6 | `output_resolution` | 仅编辑模式显示，1024 / 1280 | 有参考图时决定像素预算；**给了宽高时仍决定参考图被缩到多大**（官方 docstring：derive height/width **and to resize condition images**） | ✅ 正确；语义详见 [RESOLUTION.md](RESOLUTION.md)，文案已改成两点式说明 |
 | 7 | `negative_prompt` | 仅文生图模式显示 | 原来只在 JSON 分支解析 | ⚠️ **已修**（见下） |
 | 8 | `guidance_scale` | UI 未暴露 | 原来只在 JSON 分支解析 | ⚠️ **已修**（见下） |
 | 9 | `size` | UI 未暴露 | `_resolve_size` 支持 `"2048x2048"` | ✅ 一致（UI 用档位/宽高即可） |
 
-## 二、已修的三处
+## 二、已修的五处
 
 ### 2.1 multipart 会静默丢掉 `negative_prompt` / `guidance_scale`
 
@@ -72,18 +72,60 @@ if bool(width) != bool(height):
 
 回归测试：`tools/check_server_size.py`（语法 + 官方尺寸公式 9 例 + 补全逻辑 8 例）。
 
-## 三、文案不精确但不影响使用的一处
+### 2.4 seed：负数当种子用 + 出图后自动回填（两个都是逻辑 bug）
 
-`输出分辨率 output_resolution` 的 label 写「仅编辑模式，默认 1024→输出 832×1248」。
+**一、负数被当成真种子。** multipart 分支是 `int(g("seed"))`，JSON 分支直接 `b.get("seed")`，
+`seed=-5` 会原样进 `torch.Generator().manual_seed(-5)` —— 生成是能跑，但响应里回的是一个
+**假的可复现参数**：用户照抄 `-5` 并不能复现同一张图。现在两条分支共用：
+
+```python
+def _norm_seed(value):        # None / "" / 负数 → None（= 服务端自己掷一个真随机种子）
+```
+
+实测（实例上真跑，见 `remote/scripts/_verify_ui_seed_fix.sh`）：
+
+| 请求 | 响应 |
+|---|---|
+| 不传 seed | `seed=854362748, seed_given=false` ✅ |
+| `seed=-5` / `seed=-1` | 随机，`seed_given=false` ✅ |
+| `seed=0` | `seed=0, seed_given=true` ✅（0 是合法种子，不是"没给"） |
+| `seed=4242` | `seed=4242, seed_given=true` ✅ |
+| 编辑（multipart）`seed=-7` / `seed=7` | 随机 / `seed=7` ✅ |
+
+**二、出图后把随机种子写回输入框。** 上一轮为了"想复现时有个值可抄"做了自动回填，
+副作用是**留空从此变成固定**：用户不动它，下一张就是上一张的复刻。现在：
+
+- 出图**不回填**，输入框保持用户自己的值（留空就一直随机）；
+- 实际种子照旧显示在右上角 `seed` 卡片和右侧历史里；
+- 想复现某一张 → **点历史里的缩略图**，那一瞬间才把该图的 seed 填进输入框（并写一行日志）；
+- 「复用当前参数」按钮仍会带上 seed，日志里注明"想重新随机就把 seed 清空"。
+
+回归测试：`python tools/webui_logic_check.py` —— 它用 DOM 桩子在 Node 里**真跑页面脚本**
+（本沙箱不许起浏览器），断言 `seed=""` / `"-5"` → `params().seed === undefined`、
+`showHist(0)` → 输入框变成该图 seed、再清空又回到随机；同时检查 CSS 级联里
+`.chk` 最终 `display` 必须是 `flex`（见 §2.5）。
+
+### 2.5 选项对钩后面的说明文字掉到下一行（纯 CSS 层叠事故）
+
+`.chk` 本来是 `display:flex`（对钩与说明文字同一行），后面又补了一条 `.chk{display:block}`；
+两条同权重，后写的赢 —— 于是 `label` 变回块级元素（全局 `label{display:block}`），
+文字被挤到对钩下面另起一行。修法：删掉那条覆盖，并把 `label` 明确声明成 flex 项
+（`flex:1 1 auto; min-width:0`），长文本在自身宽度内折行而不是整体换行。
+
+## 三、文案修正（已完成）
+
+`输出分辨率 output_resolution` 的 label 原先写「仅编辑模式，默认 1024→输出 832×1248」。
 
 - **"832×1248" 是错的当示例看**：输出尺寸 = 1024² 像素预算按**参考图比例**摊开，
   所以 832×1248 只对应"参考图是 2:3"这一种情况。换张 1:1 的参考图，同样的默认值出 1024×1024。
 - **"仅编辑模式" 对 UI 成立、对后端不成立**：管线签名里 `output_resolution` 与模式无关
   （"`output_resolution`² 是像素预算，比例取 `image[-1]`；显式给 width/height 则直接用你给的值"），
   文生图时它同样有效。只是 UI 把这个控件收在编辑模式下（文生图用档位/宽高更直观），所以对用户没有歧义。
+- **还漏了第二个作用**：它同时决定**参考图被缩到多大再喂给模型**
+  （官方 docstring：`... and to resize condition images`），所以给了宽高之后它**仍然影响结果**。
 
-**建议改法**（未改，等确认口径）：把 label 改成
-`编辑分辨率 output_resolution（仅编辑模式；等于像素预算，比例跟随参考图，默认 1024）`。
+**已改**：label 换成两点式说明（哪一步决定尺寸、哪一步影响清晰度）+ 一条实测警告
+（不是越大越好，见 [RESOLUTION.md](RESOLUTION.md)）。
 
 ## 四、验证过、确认不用改的文案
 
