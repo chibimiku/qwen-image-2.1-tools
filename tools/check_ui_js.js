@@ -37,4 +37,32 @@ for (const fn of ['renderChips', 'insertTag', 'renderThumbs']) {
   const n = (html.match(new RegExp(`function ${fn}\\s*\\(`, 'g')) || []).length;
   console.log(`  def ${fn}(): ${n}${n === 1 ? ' OK' : ' DUPLICATE!'}`);
 }
+
+// 新增 UI 元素自检
+console.log('--- followref / 阶段进度 元素 ---');
+for (const s of ['id="followref"', 'id="refsize"', 'function syncFollowRef',
+                 'function refSizeHint', 'function derivedSize', 'function followRefOn']) {
+  const n = html.split(s).length - 1;
+  console.log(`  ${JSON.stringify(s)}: ${n}${n >= 1 ? ' OK' : ' MISSING!'}`);
+}
+
+// 递归风险：A 调 B、B 又调 A —— 这种死递归只会在浏览器里炸，必须静态拦下
+const code = blocks.map(m => m[1]).join('\n');
+const FNS = [...code.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(/g)].map(m => m[1]);
+const calls = {};
+for (const fn of FNS) {
+  const body = code.slice(code.indexOf(`function ${fn}(`));
+  const seg = body.slice(0, body.indexOf('\nfunction ') === -1 ? body.length : body.indexOf('\nfunction '));
+  calls[fn] = new Set(FNS.filter(o => o !== fn && new RegExp(`\\b${o}\\s*\\(`).test(seg)));
+}
+console.log('--- 互相调用检测（A→B 且 B→A 就是死递归） ---');
+let cycles = 0;
+for (const a of FNS) for (const b of (calls[a] || [])) {
+  if (calls[b] && calls[b].has(a) && a < b) {
+    cycles++;
+    console.log(`  CYCLE: ${a}() <-> ${b}()`);
+  }
+}
+console.log(cycles ? `  ${cycles} 处互相调用 —— 确认是否有终止条件！` : '  无互相调用 OK');
+
 process.exit(bad ? 1 : 0);

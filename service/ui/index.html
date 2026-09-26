@@ -51,6 +51,7 @@
         border:1px solid var(--line);background:#0b0f14;color:var(--accent);cursor:pointer;white-space:nowrap}
   .chip:hover{background:var(--accent);color:#06121f;border-color:var(--accent)}
   .chiphint{color:var(--dim);font-size:11px;line-height:1.6}
+  .chk{display:block}
  .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
  .kpi .k{color:var(--dim);font-size:11px}.kpi .v{font-size:16px;font-weight:700}
@@ -249,6 +250,19 @@
       <label>随机种子 seed（留空=随机；填了可复现）</label>
       <input type="number" id="seed" placeholder="例如 22">
 
+      <div class="chk"><input type="checkbox" id="followref" checked>
+        <label for="followref" style="margin:0">跟随参考图尺寸
+          <span class="q">?<span class="tip">
+            <span class="tip-hd">为什么默认勾上</span>
+            勾上时：请求里<b>不带</b> width/height，后端用 <code>output_resolution</code> 当像素预算、
+            比例取<b>最后一张</b>参考图 —— 也就是"输出跟着参考图走"。<br>
+            取消勾选：宽高输入框解锁，可以手填（这是把编辑分辨率抬到 2K 的唯一杠杆，
+            但本机编辑上限约 <b>1.92MP</b>）。<br>
+            <span class="tip-ft">宽高原先预填 1024×1024，会悄悄覆盖参考图比例 —— 所以改成默认跟随参考图。</span>
+          </span></span>
+        </label>
+      </div>
+      <div class="kbd" id="refsize" style="margin:6px 0 2px"></div>
       <div id="outreswrap">
         <label>编辑分辨率 output_resolution（仅编辑模式，默认 1024→输出 832×1248）</label>
         <select id="outres">
@@ -419,6 +433,7 @@ function collectForm(){
     outres: $('outres').value,
     transparent: $('transparent').checked,
     async: $('async').checked,
+    followref: followRefOn(),
   };
 }
 
@@ -440,11 +455,35 @@ function loadForm(){
   set('outres', f.outres);
   if (f.transparent !== undefined) $('transparent').checked = !!f.transparent;
   if (f.async !== undefined) $('async').checked = !!f.async;
+  // 要在 setMode 之前设好，否则 setMode 里的 syncFollowRef 用的是旧值
+  if ($('followref') && f.followref !== undefined) $('followref').checked = !!f.followref;
   setMode(f.mode === 'edit' ? 'edit' : 't2i');
   if ($('ratio')) $('ratio').value = f.ratio || '';
   syncRatio();
   if ($('stepv')) $('stepv').textContent = $('steps').value;
   return true;
+}
+
+/* 读参考图尺寸：管线用 image[-1] 定比例，所以取最后一张。结果按 File 缓存。 */
+function readFileSize(f){
+  return new Promise(res => {
+    const url = URL.createObjectURL(f);
+    const im = new Image();
+    im.onload  = () => { URL.revokeObjectURL(url); res([im.naturalWidth, im.naturalHeight]); };
+    im.onerror = () => { URL.revokeObjectURL(url); res(null); };
+    im.src = url;
+  });
+}
+
+const _sizeCache = new Map();
+async function refRatio(){
+  if (!files.length) return null;
+  const f = files[files.length - 1];
+  if (!_sizeCache.has(f)) _sizeCache.set(f, await readFileSize(f));
+  const wh = _sizeCache.get(f);
+  if (!wh) return null;
+  const [w, h] = wh;
+  return {w, h, ratio: w / h, name: f.name};
 }
 
 /* 宽高联动（实测过的规则，别凭印象改）：
@@ -454,6 +493,65 @@ function loadForm(){
      档位在编辑模式下后端也支持（映射到官方档位），所以不再置灰。 */
 const RATIO_TBL = {'1:1':[2048,2048], '4:3':[2400,1792], '3:4':[1792,2400],
                    '3:2':[2528,1696], '2:3':[1696,2528], '16:9':[2752,1536], '9:16':[1536,2752]};
+
+/* 与官方 calculate_dimensions 一致：width=round(sqrt(area*ratio)/32)*32，高用未取整的宽反算 */
+function derivedSize(rw, rh, budget){
+  const ratio = rw / rh;
+  const area = budget * budget;
+  const rawW = Math.sqrt(area * ratio);
+  const rawH = rawW / ratio;
+  return [Math.round(rawW / 32) * 32, Math.round(rawH / 32) * 32];
+}
+
+function followRefOn(){ const el = $('followref'); return !!(el && el.checked); }
+
+/* 跟随参考图尺寸：编辑模式默认开。开启时请求不带 width/height，
+   后端就用 output_resolution 当像素预算、比例取参考图。
+   注意：本函数**不**反向调 syncRatio（那会死递归），提示文案自己写。 */
+function syncFollowRef(){
+  const box = $('followref');
+  if (!box) return;
+  const wrap = box.closest('.chk');
+  if (wrap) wrap.style.display = (mode === 'edit') ? '' : 'none';
+  if (mode !== 'edit') return;
+
+  const on = box.checked;
+  ['width', 'height'].forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    el.disabled = on;
+    el.style.opacity = on ? .45 : 1;
+    el.style.cursor = on ? 'not-allowed' : 'text';
+    el.title = on ? '正在跟随参考图尺寸；取消勾选才能手填（手填是抬到 2K 的唯一杠杆）'
+                  : '手填像素尺寸（32 的倍数更好对齐；本机编辑上限约 1.92MP）';
+  });
+  if (on && $('ratio')) $('ratio').value = '';
+  const note = $('rationote');
+  if (note){
+    note.textContent = on
+      ? '正在跟随参考图尺寸：请求不带宽高，比例取最后一张参考图，分辨率由 output_resolution 决定'
+      : '已解除跟随：下面填的宽高会直接用（本机编辑上限约 1.92MP）';
+    note.style.display = 'block';
+    note.style.color = 'var(--accent)';
+  }
+}
+
+/* 预演"这张参考图会出多大"：和官方公式同一套算法，提前把尺寸算给用户看 */
+async function refSizeHint(){
+  const el = $('refsize');
+  if (!el) return;
+  if (mode !== 'edit'){ el.innerHTML = ''; return; }
+  const info = await refRatio();
+  if (!info){ el.innerHTML = ''; return; }
+  const budget = parseInt($('outres') && $('outres').value ? $('outres').value : 1024, 10);
+  const [w, h] = derivedSize(info.w, info.h, budget);
+  const mp = w * h / 1e6;
+  const cap = mp <= 1.92 ? ''
+    : ' · <span style="color:var(--bad)">超过本机编辑上限 1.92MP，建议把输出分辨率调回 1024</span>';
+  el.innerHTML = '<span class="chiphint">参考图 ' + info.w + '×' + info.h +
+    '（比例 ' + info.ratio.toFixed(3) + '） → 输出 <b>' + w + '×' + h + '</b>（' +
+    mp.toFixed(2) + 'MP）' + cap + '</span>';
+}
 
 function syncRatio(){
   const sel = $('ratio'), w = $('width'), h = $('height'), note = $('rationote');
@@ -469,6 +567,7 @@ function syncRatio(){
     el.style.opacity = locked ? .45 : 1;
     el.style.cursor = locked ? 'not-allowed' : 'text';
   });
+  if (mode === 'edit'){ syncFollowRef(); refSizeHint(); return; }
   if (!note) return;
   let txt = '';
   if (picked){
@@ -508,7 +607,7 @@ function sizeAdvice(w, h){
 }
 
 function bindFormPersistence(){
-  ['prompt','negative','width','height','steps','seed','outres','transparent','async','ratio']
+  ['prompt','negative','width','height','steps','seed','outres','transparent','async','ratio','followref']
     .forEach(id => {
       const el = $(id);
       if (!el) return;
@@ -585,6 +684,8 @@ function setMode(m){
     if (orw) orw.title = '不填宽高时，这个值就是像素预算（比例跟随参考图）';
   }
   syncRatio();
+  syncFollowRef();
+  refSizeHint();
 }
 
 /* ---------------------------------------------------------------- 进度 */
@@ -618,7 +719,29 @@ function applyProgress(p){
   const pct = (p.pct !== undefined && p.pct !== null) ? p.pct : (total ? 100 * done / total : 0);
   if (bar) bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
   set('p-pct', pct.toFixed(0) + '%');
+  // 收尾阶段（去噪已完、图还没到手）：条子收回 99%，别假装已经 100% 了。
+  // 这是实测反馈：满格之后还在等，人会以为卡死。
+  const finishing = (p.status === 'decoding' || p.status === 'encoding');
+  if (finishing){
+    if (bar) bar.style.width = '99%';
+    set('p-pct', '99%');
+  }
   if (p.status === 'queued') set('p-step', '排队中，前面还有任务在跑…');
+  else if (p.status === 'decoding'){
+    set('p-step', '去噪完成，正在解码 / 收尾…');
+    set('p-pct', '99%');
+    const nt = document.getElementById('p-note');
+    if (nt) nt.textContent = '步数已走完：VAE 解码 + PNG 编码 + 传输。通常不到 1 秒，'
+                           + '大尺寸或网络慢时会多等一会儿';
+    return;
+  }
+  else if (p.status === 'encoding'){
+    set('p-step', '正在编码 PNG…');
+    set('p-pct', '99%');
+    const nt2 = document.getElementById('p-note');
+    if (nt2) nt2.textContent = '最后一步：PNG 编码 + base64';
+    return;
+  }
   else set('p-step', '已走 ' + done + ' / ' + total + ' 步');
   set('p-elapsed', fmtDur(p.elapsed_s));
   set('p-perstep', p.per_step_s ? fmtDur(p.per_step_s) : '—');
@@ -660,6 +783,12 @@ $('file').onchange = e => addFiles(e.target.files);
   e.preventDefault(); $('drop').classList.remove('hot'); }));
 $('drop').addEventListener('drop', e => addFiles(e.dataTransfer.files));
 
+// 跟随参考图尺寸：勾选一变，宽高输入与尺寸预览都要跟着变
+if ($('followref')) $('followref').addEventListener('change', () => {
+  syncFollowRef(); refSizeHint(); saveForm();
+});
+if ($('outres')) $('outres').addEventListener('change', () => refSizeHint());
+
 function addFiles(list){
   [...list].forEach(f => { if (files.length < 10 && f.type.startsWith('image/')) files.push(f); });
   renderThumbs();
@@ -678,6 +807,7 @@ function renderThumbs(){
   note.innerHTML = files.length === 1
     ? `输出比例将跟随这张图（<b>${last.name}</b>），除非你在下面手填宽高`
     : `<b>${files.length}</b> 张参考图 → 多主体合成；默认输出比例跟随<b>最后一张</b>（${last.name}）。想换比例就调整顺序或手填宽高。`;
+  refSizeHint();
 }
 /* 官方多参考图约定：按上传顺序叫 <image1> <image2> ...（见 pipeline prompt_template_ti2i
    自动注入的占位符，以及官方 prompt_rewrite edit_example 的 <image1>/<image2> 写法）。 */
@@ -814,8 +944,10 @@ async function run(){
       fd.append('transparent', p.transparent);
       if ($('outres').value) fd.append('output_resolution', $('outres').value);
       // 编辑：宽高/档位留空则跟随参考图；填了就是分辨率杠杆（可出 2K）
+      // 跟随参考图时不发宽高（HTML 预填的 1024 会覆盖比例 —— 实测踩过的坑）
+      const follow = followRefOn();
       if ($('ratio').value) fd.append('aspect_ratio', $('ratio').value);
-      else {
+      else if (!follow) {
         if ($('width').value) fd.append('width', $('width').value);
         if ($('height').value) fd.append('height', $('height').value);
       }
