@@ -222,21 +222,22 @@
       <div id="negwrap">
         <label>负面提示词 negative_prompt
           <span class="q">?<span class="tip">
-            <span class="tip-hd">它只在 CFG &gt; 1 时才生效</span>
-            这是官方管线的硬规则：<code>negative_prompt</code> 起作用的前提是
-            <code>true_cfg_scale &gt; 1</code>（管线源码 L668-674 会在不满足时打 warning）。<br>
-            所以<b>光填负面词、CFG 保持 1，等于没填</b>。<br>
-            <b>人体崩坏</b>场景常用的负面词：<br>
-            <code>extra limbs, extra legs, extra arms, fused limbs, merged legs,
-            malformed hands, missing limbs, conjoined figures, distorted anatomy</code><br>
-            下面有「填入人体负面词」按钮，点一下就填好（同时会把 CFG 设成 2.5）。<br>
-            <span class="tip-ft">详见 docs/PROMPT-ANATOMY.md</span>
+            <span class="tip-hd">官方没有给负面词，且默认不启用它</span>
+            官方文档（管线 docstring L540-544）关于负面词**只有两句**：<br>
+            ① <i>negative_prompt … Ignored when `true_cfg_scale` is not greater than 1.</i><br>
+            ② <i>Qwen-Image 2.1 is meant to be sampled without guidance, hence the default of 1.0.</i><br>
+            官方 README / 模型卡 / 博客里<b>一次都没提过</b>负面词，也没给推荐词表；
+            官方示例用的是 <code>--guidance-scale 1</code>，所以官方路线是"不用引导"。<br>
+            <b>结论</b>：用负面词要主动把 CFG 调到 &gt;1（机制上必须），这属于<b>偏离官方默认</b>的用法，
+            代价是耗时约 ×2。<br>
+            <b>下面两个按钮里的词是我们自己写的经验值，不是官方推荐</b>——只当起点，按结果自己改。
+            <span class="tip-ft">详见 docs/PROMPT-ANATOMY.md 第三节</span>
           </span></span>
         </label>
-        <input type="text" id="negative" placeholder="可选；要生效需把下面的 CFG 调到 >1">
+        <input type="text" id="negative" placeholder="可选（自备词；要生效需把下面的 CFG 调到 >1）">
         <div style="margin-top:6px">
-          <button class="ghost" type="button" onclick="fillAnatomyNeg()">填入人体负面词</button>
-          <button class="ghost" type="button" onclick="fillQualityNeg()">填入画质负面词</button>
+          <button class="ghost" type="button" onclick="fillAnatomyNeg()" title="我们自己写的经验值，非官方推荐">填入人体负面词（自编）</button>
+          <button class="ghost" type="button" onclick="fillQualityNeg()" title="我们自己写的经验值，非官方推荐">填入画质负面词（自编）</button>
           <button class="ghost" type="button" onclick="clearNeg()">清空</button>
         </div>
       </div>
@@ -768,6 +769,12 @@ function fitFixHTML(msg){
 }
 
 function followRefOn(){ const el = $('followref'); return !!(el && el.checked); }
+/* ⚠ 下面两串负面词是**我们自己写的经验值，不是官方推荐**。
+   官方关于负面词只有管线 docstring 那两句（L540-544）：
+     · negative_prompt 在 true_cfg_scale <= 1 时被忽略
+     · "Qwen-Image 2.1 is meant to be sampled without guidance"，默认 1.0
+   官方 README / 模型卡 / 博客从未给过负面词表，示例也用 --guidance-scale 1。
+   所以这些词只是起点，用户该按自己的结果改。 */
 const NEG_ANATOMY = 'extra limbs, extra legs, extra arms, fused limbs, merged legs, '
                   + 'malformed hands, missing limbs, conjoined figures, distorted anatomy, '
                   + 'deformed body, bad proportions';
@@ -781,7 +788,8 @@ function fillAnatomyNeg(){
   const c = $('cfgscale');
   if (c && parseFloat(c.value || '1') <= 1) c.value = '2.5';
   syncCfgNote(); saveForm();
-  log('已填入人体负面词，并把 CFG 设为 2.5（负面词需要 CFG>1 才生效；耗时约 ×2）', 'ok');
+  log('已填入人体负面词（我们自己写的经验值，非官方推荐），并把 CFG 设为 2.5 —— '
+      + '官方默认是 CFG=1 不用引导，改成 >1 属于偏离官方默认，耗时约 ×2', 'ok');
 }
 function fillQualityNeg(){
   const el = $('negative');
@@ -789,7 +797,7 @@ function fillQualityNeg(){
   const c = $('cfgscale');
   if (c && parseFloat(c.value || '1') <= 1) c.value = '2.5';
   syncCfgNote(); saveForm();
-  log('已填入画质负面词，并把 CFG 设为 2.5', 'ok');
+  log('已填入画质负面词（我们自己写的经验值，非官方推荐）并设 CFG=2.5', 'ok');
 }
 function clearNeg(){
   const el = $('negative');

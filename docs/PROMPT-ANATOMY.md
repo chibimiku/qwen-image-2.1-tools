@@ -68,26 +68,62 @@ three-view, keep high consistency` —— 这句话把"脸、头发、身体比�
 
 ## 三、代码层面查到的、能用的杠杆
 
-### 3.1 负向提示词 + CFG：你一次都没用过
+### 3.1 负向提示词 + CFG：**官方没有给负面词，也没建议用它**
 
-用元数据统计你已生成的 34 张图：**`negative_prompt` 0 次、`true_cfg_scale > 1` 0 次**。
+先把来源说清楚，避免把"我们编的"当成"官方推荐的"。
 
-管线签名支持这两项（`diffusers-pipeline_qwenimage21.py`），语义是：
-
-- `negative_prompt` 只在 `true_cfg_scale > 1` 时**才生效**（L668-674 会 warning 提示）
-- 官方默认 `true_cfg_scale = 1.0` = **不用引导**（"meant to be sampled without guidance"）
-
-所以对"多余肢体"这种明确的负面项，理论上可用：
+**官方关于负面提示词只有两句**，都在管线 docstring（`docs/upstream/diffusers-pipeline_qwenimage21.py` L540-544）：
 
 ```
-negative_prompt: extra limbs, extra legs, extra arms, fused limbs, merged legs,
-                 malformed hands, missing limbs, conjoined figures, distorted anatomy
-true_cfg_scale: 2.5
+L540:  negative_prompt (`str` or `list[str]`, *optional*):
+L541:      The prompt not to guide image generation. Ignored when `true_cfg_scale` is not greater than 1.
+L542:  true_cfg_scale (`float`, *optional*, defaults to 1.0):
+L543:      Classifier-free guidance scale. Enabled by `true_cfg_scale > 1` together with a negative prompt.
+L544:      Qwen-Image 2.1 is meant to be sampled without guidance, hence the default of 1.0.
 ```
 
-⚠️ **代价**：官方说这个模型是按"无引导"设计的，开了 CFG 可能整体变僵、色彩变差。
-实测里开 CFG 的那两组耗时从 16s 涨到 34s（多了一次前向），画面风格也变了。
-**当兜底用，不是默认开。**
+就这些。**官方没有给过任何推荐负面词表**，而且在其它所有官方材料里也找不到：
+
+| 材料 | `guidance` / `negative` 命中 |
+|---|---|
+| 官方 README | guidance 仅 1 处：示例里的 `--guidance-scale 1`；**negative 0 处** |
+| README「Default Parameters」表 | **只列了 `num_inference_steps` 和 `width/height`，根本没有 guidance 这一项** |
+| HF 模型卡 | 0 处 |
+| ModelScope README | 0 处 |
+| 官方博客（92 KB） | guidance / true_cfg / CFG / negative 全部 **0 处** |
+| 两个 PE 的 system prompt | 未提负面词 |
+| 管线签名 | `true_cfg_scale: float = 1.0`（默认就是不开引导） |
+
+**所以准确的表述是**：
+
+- 官方**唯一的立场**是"这个模型按无引导采样设计"（L544）+ 示例用 `guidance-scale 1`。
+- 要用负面词，**机制上必须**把 `true_cfg_scale` 调到 >1（L541/L543），这属于**偏离官方默认路线**。
+- **不能说"官方建议别用"** —— 原文没这么讲，那是把它读重了。
+  （这句话我一开始说过了头，这里更正。）
+
+**我们 UI 里那两串负面词是自编的经验值，不是官方推荐**：
+
+```
+人体：extra limbs, extra legs, extra arms, fused limbs, merged legs,
+      malformed hands, missing limbs, conjoined figures, distorted anatomy
+画质：blurry, lowres, jpeg artifacts, watermark, signature, text, logo,
+      oversaturated, oversharpened, photorealistic
+```
+
+界面上已标明「自编」，只当**起点**，按自己的结果改。
+
+用法与代价：
+
+```
+negative_prompt: <你的词>
+true_cfg_scale: 2.5        # 必须 >1，否则负面词被忽略（L541）
+```
+
+⚠️ **代价**：① 每步多跑一次前向，**耗时约 ×2**（实测 16s → 34s）；
+② 官方按无引导设计，开大了画面可能变僵、色彩变闷。**当兜底用，不是默认开。**
+
+⚠️ **它有没有效，我还没有可靠数据**。做过的对照实验里，每个变体只跑 1 个 seed，
+而生成是概率性的 —— 那种样本量判定不了对错。多 seed 统计见下面的实验记录（若有）。
 
 ### 3.2 分辨率：不是主因，但会改变风格
 
