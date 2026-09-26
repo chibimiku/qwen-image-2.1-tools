@@ -293,11 +293,12 @@ _MAX_PROGRESS = 40
 def _new_progress(rid: Optional[str], total_steps: int) -> Dict[str, Any]:
     rid = rid or ("req_" + uuid.uuid4().hex[:12])
     p = {
-        "request_id": rid, "status": "queued", "step": 0, "steps_done": 0,
+        "request_id": rid, "status": "queued", "phase": "queued", "step": 0, "steps_done": 0,
         "total": int(max(1, total_steps)), "pct": 0.0,
         "elapsed_s": 0.0, "eta_s": None, "per_step_s": None,
         "durations": [], "started": time.time(), "last_step_at": time.time(),
         "finished_at": None, "callback_unavailable": False, "error": None,
+        "decode_started": None, "decode_s": None, "encode_s": None,
     }
     _progress[rid] = p
     if len(_progress) > _MAX_PROGRESS:
@@ -315,7 +316,14 @@ def _progress_view(p: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if p["steps_done"] and not p["eta_s"]:
             left = max(0, p["total"] - p["steps_done"])
             p["eta_s"] = round(left * (p["elapsed_s"] / p["steps_done"]), 1)
-    keys = ("request_id", "status", "step", "steps_done", "total", "pct", "elapsed_s",
+    # 最后一步的回调已经跑完，但图还没回来 → 主动声明进入收尾阶段。
+    # 纯粹看 status 会漏掉这个窗口（它短到轮询经常抓不到），所以用回调里的
+    # steps_done 来判断：这样前端一定能看到一句"在收尾"，而不是干巴巴的 100%。
+    if p["status"] == "running" and p["total"] and p["steps_done"] >= p["total"]:
+        p["status"] = "decoding"
+        p["phase"] = "decoding"
+        p["pct"] = 99.0
+    keys = ("request_id", "status", "phase", "step", "steps_done", "total", "pct", "elapsed_s",
             "eta_s", "per_step_s", "callback_unavailable", "error")
     view = {k: p.get(k) for k in keys}
     d = p.get("durations") or []
@@ -450,12 +458,18 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                 raise
 
         prog["status"] = "running"
+        prog["phase"] = "denoising"
         try:
             torch.cuda.reset_peak_memory_stats()
             result = await asyncio.get_running_loop().run_in_executor(None, _call)
-            prog["status"] = "done"
-            prog["steps_done"] = prog["total"]
+            # 去噪走完了，但图还没好：VAE 解码 + PNG 编码 + base64 还在后面。
+            # 以前这里就把 status 写成 done、pct 写 100，前端于是"卡在 100% 不动"。
+            # 现在拆成两个阶段，进度条满格但文案说清楚在干什么。
+            prog["phase"] = "decoding"
+            prog["status"] = "decoding"
+            prog["decode_started"] = time.time()
             prog["step"] = prog["total"]
+            prog["steps_done"] = prog["total"]
             prog["pct"] = 100.0
             prog["eta_s"] = 0.0
         except torch.cuda.OutOfMemoryError:
@@ -475,19 +489,29 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                 _peak_gib = max(_peak_gib, round(torch.cuda.max_memory_allocated() / 1024 ** 3, 2))
         elapsed = round(time.time() - t0, 2)
         items = []
+        prog["status"] = "encoding"
+        prog["phase"] = "encoding"
+        prog["decode_s"] = round(time.time() - prog.get("decode_started", t0), 2)
+        t_enc = time.time()
         for i, im in enumerate(result.images):
             if fmt in ("jpg", "jpeg") and im.mode == "RGBA":
                 bg = Image.new("RGB", im.size, (255, 255, 255))
                 bg.paste(im, mask=im.split()[-1])
                 im = bg
             buf = io.BytesIO()
-            im.save(buf, format="PNG" if fmt == "png" else fmt.upper())
+            # compress_level=1：PNG 默认 6 级，在 1024² 上要多花几百毫秒，
+            # 而对生成图来说这点压缩收益毫无意义。体积大约 +10%。
+            im.save(buf, format="PNG" if fmt == "png" else fmt.upper(),
+                    **({"compress_level": 1} if fmt == "png" else {}))
             items.append({
                 "b64_json": _b64(buf.getvalue()),
                 "seed": (seed + i) if seed is not None else i,
                 "width": im.width, "height": im.height,
                 "mode": im.mode, "elapsed_s": elapsed,
             })
+        prog["status"] = "done"
+        prog["phase"] = "done"
+        prog["encode_s"] = round(time.time() - t_enc, 2)
         # 把真实耗时统计带回给调用方（每步均值 / 每步明细 / 排队与加载开销）
         if items:
             items[0]["timing"] = {
@@ -498,6 +522,9 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "per_step_s": prog["per_step_s"],
                 "durations": prog["durations"][-12:],
                 "callback_ok": not prog["callback_unavailable"],
+                # 去噪之后的两段：VAE 解码 + 图像编码。前端要能说清"100% 之后在等什么"
+                "decode_s": prog.get("decode_s"),
+                "encode_s": prog.get("encode_s"),
             }
         return items
 
