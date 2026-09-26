@@ -473,8 +473,12 @@ def finalize_metadata(item: Dict[str, Any]) -> None:
         print(f"[meta] 元数据收尾失败（不影响出图）：{exc}", flush=True)
 
 
-def _next_index(day_dir: pathlib.Path) -> int:
-    """当天目录里已有序号的最大值 + 1（文件名形如 03-123456.png）。"""
+def _next_index(day_dir: pathlib.Path, taken: set = None) -> int:
+    """当天目录里已有序号的最大值 + 1（文件名形如 03-123456.png）。
+
+    `taken` 是本批次**已分配但还没写盘**的路径集合 —— 序号靠扫目录得出，
+    而一次出多张时三张都在写盘前就分配好了路径，不预留就会全撞同一个序号（实测过）。
+    """
     n = 0
     try:
         for p in day_dir.iterdir():
@@ -482,15 +486,21 @@ def _next_index(day_dir: pathlib.Path) -> int:
             if m:
                 n = max(n, int(m.group(1)))
     except FileNotFoundError:
-        return 1
+        pass
+    for taken_path in (taken or ()):
+        m = re.match(r"^(\d+)-", os.path.basename(taken_path))
+        if m:
+            n = max(n, int(m.group(1)))
     return n + 1
 
 
-def allocate_output_path(item: Dict[str, Any]) -> Optional[str]:
+def allocate_output_path(item: Dict[str, Any], taken: set = None) -> Optional[str]:
     """先定好这次要存到哪个路径（outputs/YYYY-MM-DD/序号-seed.png）。
 
     顺序很重要：**先定路径 → 写进元数据 → 再序列化 PNG → 最后写盘**。
     反过来的话，图里的元数据会缺 saved_path（磁盘上的和回包的就对不上了）。
+
+    `taken`：同一批里已分配给别的图的路径，用来避开还没落盘的序号。
     """
     if not SAVE_OUTPUTS:
         return None
@@ -498,8 +508,11 @@ def allocate_output_path(item: Dict[str, Any]) -> Optional[str]:
         day_dir = pathlib.Path(OUT_DIR) / time.strftime("%Y-%m-%d")
         day_dir.mkdir(parents=True, exist_ok=True)
         with _save_lock:                      # 序号分配要串行，否则并发会撞号
-            idx = _next_index(day_dir)
-            return str(day_dir / f"{idx:02d}-{item.get('seed', 'x')}.png")
+            idx = _next_index(day_dir, taken)
+            path = str(day_dir / f"{idx:02d}-{item.get('seed', 'x')}.png")
+            if taken is not None:
+                taken.add(path)
+            return path
     except Exception as exc:                                           # noqa: BLE001
         print(f"[save] 分配输出路径失败：{type(exc).__name__}: {exc}", flush=True)
         return None
@@ -686,6 +699,28 @@ def enforce_fitting_size(width: int, height: int, mode: str = "t2i",
     note = (f"原尺寸 {width}x{height}（{width * height / 1e6:.2f}MP）超出本机{mode}可用显存，"
             f"已按同一比例缩到 {w}x{h}（{w * h / 1e6:.2f}MP）")
     return w, h, note
+
+
+def _parse_sigmas(raw: Any) -> Optional[List[float]]:
+    """把 "0.9,0.7,0.5,0.3,0" 这种字符串解析成浮点列表；非法值一律当没给。
+
+    sigmas 是进阶旋钮：给了就直接取代"按步数生成的调度"。官方 docstring 只说
+    "Custom sigmas for the denoising schedule"，没规定形状，所以这里只做宽松校验
+    （至少 2 个点、递减、全在 [0,1] 内），不合格就退回默认调度，不报错。
+    """
+    if raw is None or raw == "":
+        return None
+    try:
+        vals = [float(x) for x in re.split(r"[,\s]+", str(raw).strip()) if x != ""]
+    except (TypeError, ValueError):
+        return None
+    if len(vals) < 2:
+        return None
+    if any(v < 0 or v > 1 for v in vals):
+        return None
+    if any(vals[i] < vals[i + 1] for i in range(len(vals) - 1)):   # 必须单调递减
+        return None
+    return vals
 
 
 def estimate_transient_gib(width: int, height: int, steps: int, mode: str = "t2i") -> float:
@@ -974,6 +1009,12 @@ async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
             kwargs["true_cfg_scale"] = float(req["guidance_scale"])
         if req.get("negative_prompt"):
             kwargs["negative_prompt"] = req["negative_prompt"]
+        if int(req.get("num_images_per_prompt") or 1) > 1:
+            kwargs["num_images_per_prompt"] = int(req["num_images_per_prompt"])
+        if req.get("sigmas"):
+            # 自定义调度：给了就取代按步数生成的那套。注意它和 num_inference_steps
+            # 谁起作用由管线定（sigmas 传了就走 sigmas），所以进度条的总步数按它算。
+            kwargs["sigmas"] = req["sigmas"]
         if req.get("output_resolution"):
             # 决定去噪分辨率与实际输出边长（默认 1024），比 width/height 更管用
             kwargs["output_resolution"] = int(req["output_resolution"])
@@ -981,7 +1022,10 @@ async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
         # ---- 真实进度：挂在管线的 per-step 回调上 ----
         prog = _new_progress(req.get("request_id"), steps)
         req["_progress"] = prog
-        tot = max(1, int(steps) * max(1, int(getattr(pipe, "num_images_per_prompt", 1) or 1)))
+        # 一次出 N 张时，回调总共会被调 steps*N 次（每张图各走一遍去噪），
+        # 所以进度分母要按请求里的张数算 —— 以前取的是 pipe 的类属性，多图时对不上。
+        n_per = max(1, int(req.get("num_images_per_prompt") or 1))
+        tot = max(1, int(steps) * n_per)
 
         def _on_step(pipe_ref=None, step=None, timestep=None, callback_kwargs=None, **_ignored):
             """diffusers 每步都会调；用它算真实步数、每步耗时与 ETA。"""
@@ -1123,23 +1167,28 @@ async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
         # ── 把生成信息写进 PNG 自己（记录所有生成信息，且后续加字段兼容）──
         # 放在这里而不是重试循环里：这里每张图的 seed/尺寸/耗时都已确定，
         # 重试循环只负责最后补一次审图结果（见 _generate）。
-        if PNG_METADATA != "none":
-            n = len(items)
-            for i, item in enumerate(items):
-                req["extra"] = {"image_index": i, "image_count": n,
-                                "true_cfg_scale": kwargs.get("true_cfg_scale"),
-                                "guidance_scale": req.get("guidance_scale")}
-                item["saved_path"] = allocate_output_path(item)      # 先定路径
-                item["meta"] = build_metadata(req, item, item.get("timing"))
-                if item.get("saved_path"):                           # 路径进元数据
-                    item["meta"]["saved_path"] = item["saved_path"]
-                    item["meta"].setdefault("output", {})["saved_path"] = item["saved_path"]
-                finalize_metadata(item)
+        # 分配落盘路径 + 写元数据（先定路径 → 写进元数据 → 再序列化，顺序不能反）
+        n = len(items)
+        taken_paths: set = set()             # 本批已分配的路径，避免多图撞序号
+        for i, item in enumerate(items):
+            item["saved_path"] = allocate_output_path(item, taken_paths)
+            if PNG_METADATA == "none":
+                continue
+            req["extra"] = {"image_index": i, "image_count": n,
+                            "true_cfg_scale": kwargs.get("true_cfg_scale"),
+                            "guidance_scale": req.get("guidance_scale")}
+            item["meta"] = build_metadata(req, item, item.get("timing"))
+            if item.get("saved_path"):                               # 路径进元数据
+                item["meta"]["saved_path"] = item["saved_path"]
+                item["meta"].setdefault("output", {})["saved_path"] = item["saved_path"]
+            finalize_metadata(item)
         # 落盘 + 回包用同一份字节（逐字节一致；图里的元数据也含 saved_path）
         for item in items:
             blob = item.get("_raw") or (base64.b64decode(item["b64_json"])
                                         if item.get("b64_json") else b"")
-            write_output(item.get("saved_path") or allocate_output_path(item), blob)
+            # 路径只在上面分配过一次；这里**不能**再调 allocate_output_path ——
+            # 多图时序号在写盘前不会递增，重复分配会让几张图撞同一个序号（实测 3 张都拿到 59）。
+            write_output(item.get("saved_path"), blob)
             item.pop("_raw", None)
             item["b64_json"] = _b64(blob)
         return items
@@ -1485,6 +1534,9 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
         # guidance_scale 是常见叫法，但管线实际参数名是 true_cfg_scale；两个都收。
         _gs = g("true_cfg_scale") or g("guidance_scale")
         gscale = float(_gs) if _gs is not None else None
+        # 一次出几张（每张种子依次 +1，见编码处）；上限 8，别让一次请求把卡占太久
+        n_img = int(g("num_images_per_prompt", 1))
+        sig = g("sigmas")
         request_id = str(g("request_id") or "") or rid_hdr
         for key in ("image", "image[]"):
             for up in f.getlist(key):
@@ -1508,7 +1560,9 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
         aspect = b.get("aspect_ratio")
         request_id = b.get("request_id") or rid_hdr
         neg = b.get("negative_prompt")
-        gscale = b.get("guidance_scale")
+        gscale = b.get("guidance_scale") if b.get("guidance_scale") is not None else b.get("true_cfg_scale")
+        n_img = int(b.get("num_images_per_prompt", 1))
+        sig = b.get("sigmas")
         for b64 in (b.get("image_b64") or []):
             try:
                 if isinstance(b64, str) and b64.startswith("data:"):
@@ -1563,6 +1617,11 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
         "output_format": output_format, "transparent": transparent,
         "anatomy_check": anatomy_check, "anatomy_max_retries": anatomy_max_retries,
         "guidance_scale": gscale, "negative_prompt": neg,
+        # 一次出几张（1~8）；多图时每张种子依次 +1，各自可复现
+        "num_images_per_prompt": max(1, min(int(n_img or 1), 8)),
+        # 自定义 sigmas：逗号分隔的浮点列表。给了就完全取代 num_inference_steps 决定的调度，
+        # 属于进阶玩法（官方 docstring: "Custom sigmas for the denoising schedule"）
+        "sigmas": _parse_sigmas(sig),
         "output_resolution": outres, "images": images_in, "image_names": image_names,
         "request_id": request_id,
     }

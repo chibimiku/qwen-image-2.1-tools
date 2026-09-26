@@ -40,6 +40,7 @@ EXPECT = {
     51: "Write it as an instruction",
     170: "Prompt Rewriting",
     668: "has_neg_prompt",
+    674: "classifier-free guidance is not enabled",
     766: "latent_model_input = latents",
     768: "torch.cat",
 }
