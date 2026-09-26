@@ -308,21 +308,42 @@
         <label for="followref" style="margin:0">跟随参考图尺寸
           <span class="q">?<span class="tip">
             <span class="tip-hd">为什么默认勾上</span>
-            勾上时：请求里<b>不带</b> width/height，后端用 <code>output_resolution</code> 当像素预算、
-            比例取<b>最后一张</b>参考图 —— 也就是"输出跟着参考图走"。<br>
-            取消勾选：宽高输入框解锁，可以手填（这是把编辑分辨率抬到 2K 的唯一杠杆，
-            但本机编辑上限约 <b>1.92MP</b>）。<br>
+            勾上时：请求里<b>不带</b> width/height，后端用「编辑分辨率」的平方当<b>像素预算</b>、
+            比例取<b>最后一张</b>参考图 —— 也就是"输出的尺寸和比例都跟着参考图走"。<br>
+            勾上时档位和宽高都会被置灰（它们轮不到生效）。<br>
+            取消勾选：宽高和档位解锁。选档位就按官方 2K 尺寸（超显存会按同比例自动缩），
+            手填就用你填的值 —— 这才是把输出抬到 2K 的杠杆（本机编辑上限约 <b>1.92MP</b>）。<br>
             <span class="tip-ft">宽高原先预填 1024×1024，会悄悄覆盖参考图比例 —— 所以改成默认跟随参考图。</span>
           </span></span>
         </label>
       </div>
       <div class="kbd" id="refsize" style="margin:6px 0 2px"></div>
       <div id="outreswrap">
-        <label>编辑分辨率 output_resolution（仅编辑模式，默认 1024→输出 832×1248）</label>
+        <label>编辑分辨率 output_resolution
+          <span class="q">?<span class="tip">
+            <span class="tip-hd">这个值和上面的比例是什么关系</span>
+            它<b>不是</b>"输出边长"，而是一个<b>分辨率杠杆</b>，两个作用：
+            <ol style="margin:6px 0 6px 16px;padding:0">
+              <li>上面没给宽高时（跟随参考图）：用它的平方当<b>像素预算</b>，比例取参考图 ——
+                  所以它<b>确实在决定输出尺寸</b>。<br>
+                  <span style="color:var(--dim)">例：参考图 539×1217（比例 0.443）+ 这里选 1024
+                  → 像素预算 1024²，按 0.443 摊开 → 输出约 672×1536</span></li>
+              <li>上面给了宽高时（选了档位或手填）：输出尺寸由<b>宽高说了算</b>，这里不再影响边长；
+                  但它仍然决定<b>参考图被缩到多少再喂给模型</b> ——
+                  所以<b>改了输出照样会变</b>（实测：宽高固定 512×512，这个从 1024 改到 1280，
+                  出图 md5 就不同了）。</li>
+            </ol>
+            <b>什么时候该调大它？</b>参考图分辨率高（比如 2K 以上的三视图/立绘），
+            调到 1280 能让模型看到更多细节，同一张参考图更容易还原得准。<br>
+            💡 跟随参考图时，下面那行会实时显示"参考图比例 → 预计输出尺寸"，看那里最直观。
+            <span class="tip-ft">官方文档：output_resolution = "Target side length used to derive
+            height/width and to resize condition images"。</span>
+          </span></span>
+        </label>
         <select id="outres">
           <option value="">默认</option>
           <option value="1024">1024</option>
-          <option value="1280">1280（约 2 倍耗时）</option>
+          <option value="1280">1280（参考图细节更足，约 2 倍耗时）</option>
         </select>
       </div>
 
