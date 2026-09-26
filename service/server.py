@@ -18,15 +18,22 @@ Env:
   QWEN_UI_KEY      inject|auto|off                 (default auto)
   QWEN_SESSION_HOURS   session cookie TTL hours    (default 24)
   QWEN_MAX_QUEUE   max queued jobs                 (default 64)
+  QWEN_ANATOMY_MODEL lightweight review model      (default HuggingFaceTB/SmolVLM-500M-Instruct)
+  QWEN_ANATOMY_DEVICE cpu|cuda                      (default cpu; loaded lazily)
+  QWEN_ANATOMY_MIN_CONFIDENCE retry threshold       (default 0.78)
 """
 import asyncio
 import base64
+import hashlib
 import inspect
 import io
+import json
 import os
 import random
 import re
 import secrets
+import sys
+import threading
 import time
 import uuid
 from urllib.parse import quote
@@ -40,8 +47,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from PIL import Image
+from PIL import Image, PngImagePlugin
 
+from anatomy_check import inspect_image as inspect_anatomy, status as anatomy_status
+
+APP_VERSION = "1.1.0"          # 写进 PNG 元数据的生成器版本；改动元数据 schema 时一起加
 MODEL_DIR = os.environ.get("QWEN_MODEL_DIR", "/root/autodl-tmp/Qwen-Image-2.1")
 PORT = int(os.environ.get("QWEN_PORT", "6006"))
 # WebUI：优先取 QWEN_UI_DIR，其次取本文件旁边的 ui/ 目录
@@ -95,6 +105,330 @@ _jobs: Dict[str, Dict[str, Any]] = {}
 _load_error: Optional[str] = None
 _peak_gib = 0.0
 _queue_depth = 0
+
+
+# --------------------------------------------------------------------------- #
+# 生成元数据：写进 PNG 的 text 块，让图自己带着可复现所需的全部信息
+# --------------------------------------------------------------------------- #
+# 设计要点（用户明确要求：记录所有生成信息，且后续加字段要兼容）
+#   1. 载荷是一个**带版本的 JSON 对象**，放在键 qwen_image_21 下。读取方按
+#      schema 版本号解析，不认识的新字段直接忽略 —— 加字段不会破坏老读取方。
+#   2. PNG text 块用 **iTXt（UTF-8）**：中文 prompt 不会被 latin-1 截断/报错。
+#      同时写一份 "parameters" 纯文本键，兼容 A1111/ComfyUI 那类按惯例读它的工具。
+#   3. 模型指纹不阻塞请求：启动后后台算一次全量 SHA-256 并缓存到磁盘，
+#      hash_state 会告诉你是 ok（全量）还是 partial（只算了轻量部分）。
+#   4. 可选关闭：QWEN_PNG_METADATA=none（图里不留 prompt 时用）。
+PNG_METADATA = os.environ.get("QWEN_PNG_METADATA", "json").lower()   # json | none
+META_SCHEMA = "qwen-image-2.1/generation"
+META_VERSION = 1
+_META_CHUNK = "qwen_image_21"
+
+_fingerprint: Dict[str, Any] = {"state": "init"}
+_fingerprint_lock = threading.Lock()
+_fingerprint_started = False
+_FP_CACHE = os.path.join(_HERE, "..", "..", "logs", "model_fingerprint.json")
+_FP_CACHE = os.path.abspath(_FP_CACHE)
+
+
+def _sha256_file(path: str, chunk: int = 1 << 22) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        while True:
+            b = fh.read(chunk)
+            if not b:
+                break
+            h.update(b)
+    return h.hexdigest()
+
+
+def _model_files() -> List[str]:
+    """权重目录下所有文件（相对路径排序，保证指纹可复现）。"""
+    out = []
+    for root, _dirs, files in os.walk(MODEL_DIR):
+        for f in files:
+            out.append(os.path.relpath(os.path.join(root, f), MODEL_DIR))
+    return sorted(out)
+
+
+def _model_signature() -> Dict[str, Any]:
+    files = _model_files()
+    total = 0
+    newest = 0.0
+    for rel in files:
+        st = os.stat(os.path.join(MODEL_DIR, rel))
+        total += st.st_size
+        newest = max(newest, st.st_mtime)
+    return {"files": len(files), "bytes": total, "newest_mtime": round(newest, 3)}
+
+
+def _light_digest(files: List[str]) -> str:
+    """轻量摘要：每个文件的路径+大小+前后 64KB。ms 级，用来做完整性/变更检测。"""
+    h = hashlib.sha256()
+    for rel in files:
+        p = os.path.join(MODEL_DIR, rel)
+        try:
+            size = os.path.getsize(p)
+        except OSError:
+            continue
+        h.update(f"{rel}\0{size}\0".encode())
+        with open(p, "rb") as fh:
+            head = fh.read(65536)
+            h.update(head)
+            if size > 131072:
+                fh.seek(-65536, os.SEEK_END)
+                h.update(fh.read(65536))
+    return h.hexdigest()
+
+
+def _compute_fingerprint() -> None:
+    """后台线程：算全量 sha256（33 GB，几十秒，只做一次并落盘缓存）。"""
+    global _fingerprint
+    try:
+        sig = _model_signature()
+        files = _model_files()
+        light = _light_digest(files)
+        cached = None
+        try:
+            with open(_FP_CACHE, encoding="utf-8") as fh:
+                cached = json.load(fh)
+        except Exception:                                              # noqa: BLE001
+            cached = None
+        if (cached and cached.get("signature") == sig
+                and cached.get("weights_sha256")):
+            full, source = cached["weights_sha256"], "cache"
+        else:
+            h = hashlib.sha256()
+            for rel in files:
+                p = os.path.join(MODEL_DIR, rel)
+                try:
+                    with open(p, "rb") as fh:
+                        while True:
+                            b = fh.read(1 << 22)
+                            if not b:
+                                break
+                            h.update(b)
+                except OSError:
+                    continue
+            full, source = h.hexdigest(), "computed"
+            try:
+                os.makedirs(os.path.dirname(_FP_CACHE), exist_ok=True)
+                with open(_FP_CACHE, "w", encoding="utf-8") as fh:
+                    json.dump({"signature": sig, "weights_sha256": full,
+                               "computed_at": time.strftime("%Y-%m-%dT%H:%M:%S")},
+                              fh, ensure_ascii=False, indent=2)
+            except Exception:                                          # noqa: BLE001
+                pass
+        _fingerprint = {
+            "state": "ok", "weights_sha256": full, "weights_sha256_source": source,
+            "light_digest": light, "signature": sig,
+            "model_dir": os.path.realpath(MODEL_DIR),
+        }
+        print(f"[meta] 模型指纹就绪（{source}）：{full[:16]}…  "
+              f"{sig['files']} 个文件 / {sig['bytes'] / 1e9:.2f} GB", flush=True)
+    except Exception as exc:                                           # noqa: BLE001
+        _fingerprint = {"state": "error", "error": f"{type(exc).__name__}: {exc}"}
+        print(f"[meta] 模型指纹计算失败：{exc}", flush=True)
+
+
+def start_fingerprint() -> None:
+    """幂等启动后台指纹计算（加载完权重后调一次即可）。"""
+    global _fingerprint_started
+    with _fingerprint_lock:
+        if _fingerprint_started:
+            return
+        _fingerprint_started = True
+    threading.Thread(target=_compute_fingerprint, name="model-fingerprint",
+                     daemon=True).start()
+
+
+def model_fingerprint() -> Dict[str, Any]:
+    """当前身份的模型指纹；全量 hash 还没算好时只给轻量部分，并如实说明。"""
+    fp = dict(_fingerprint)
+    if fp.get("state") == "init":
+        try:
+            files = _model_files()
+            sig = _model_signature()
+            fp = {"state": "partial", "light_digest": _light_digest(files),
+                  "signature": sig, "model_dir": os.path.realpath(MODEL_DIR),
+                  "note": "全量 sha256 仍在后台计算，此处 light_digest 是每文件前后 64KB 的采样摘要"}
+        except Exception as exc:                                       # noqa: BLE001
+            fp = {"state": "error", "error": str(exc)}
+    return fp
+
+
+def _input_info(images_in: List[Image.Image], req: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """输入参考图的身份：逐张 sha256（PNG 原字节）+ 尺寸 + 名字。
+
+    图片 hash 用「解码后像素的 PNG 编码」算，而不是上传的原始字节 ——
+    同一张图换个格式（jpg/png）或重编码后字节不同、像素相同，
+    按像素算才能回答"是不是同一张图"。
+    """
+    out = []
+    names = req.get("image_names") or []
+    for i, im in enumerate(images_in):
+        try:
+            buf = io.BytesIO()
+            im.save(buf, format="PNG", compress_level=1)
+            digest = hashlib.sha256(buf.getvalue()).hexdigest()
+        except Exception:                                              # noqa: BLE001
+            digest = None
+        out.append({
+            "index": i + 1,                       # 对应 prompt 里的 <image1>
+            "sha256": digest,
+            "width": im.width, "height": im.height,
+            "mode": im.mode,
+            "name": names[i] if i < len(names) else None,
+        })
+    return out
+
+
+def build_metadata(req: Dict[str, Any], item: Dict[str, Any],
+                   timing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """汇总一次生成的完整信息。新增字段直接往这里加即可（读取方按 schema 版本兼容）。"""
+    extra = dict(req.get("extra") or {})
+    meta: Dict[str, Any] = {
+        "schema": META_SCHEMA,
+        "schema_version": META_VERSION,
+        "generator": {"name": "qwen-image-2.1-tools",
+                      "version": APP_VERSION,
+                      "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+        "model": dict(model_fingerprint(), model=MODEL_VERSION, dtype=DTYPE_NAME,
+                      tile_vae=TILE_VAE, offload=OFFLOAD),
+        "request": {
+            "prompt": req.get("prompt"),
+            "negative_prompt": req.get("negative_prompt"),
+            "true_cfg_scale": extra.get("true_cfg_scale"),
+            "guidance_scale": extra.get("guidance_scale"),
+            "width": item.get("width"), "height": item.get("height"),
+            "aspect_ratio": req.get("aspect_ratio"),
+            "output_resolution": req.get("output_resolution"),
+            "num_inference_steps": req.get("num_inference_steps"),
+            "seed": item.get("seed"),
+            "seed_given": item.get("seed_given"),
+            "transparent": req.get("transparent"),
+            "output_format": req.get("output_format", "png"),
+            "request_id": req.get("request_id"),
+        },
+        "inputs": _input_info(req.get("images") or [], req),
+        "output": {
+            "index": extra.get("image_index", 0),
+            "count": extra.get("image_count", 1),
+            "width": item.get("width"), "height": item.get("height"),
+            "mode": item.get("mode"),
+            # 两个哈希，各管一件事（把哈希写进文件会改变文件本身，所以必须分开记）：
+            #   content_sha256 —— 像素内容（未含元数据的 PNG 字节），用来判断"图是不是同一张"
+            #   png_sha256     —— 含元数据的最终字节流，用来判断"文件有没有被改过"
+            "content_sha256": None,   # _attach_metadata 写入前回填
+            "png_sha256": None,       # 写完元数据后回填
+        },
+        "timing": timing or item.get("timing") or {},
+        "environment": {
+            "torch": torch.__version__,
+            "cuda": torch.version.cuda,
+            "gpu": (torch.cuda.get_device_name(0) if torch.cuda.is_available() else None),
+            "python": sys.version.split()[0],
+        },
+    }
+    if req.get("anatomy_check"):
+        meta["anatomy_check"] = req.get("_anatomy_result")
+    return meta
+
+
+def _slim_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """响应里给的精简元数据：够调用方知道"这张图是谁生成的、怎么复现"即可。
+
+    完整版在 PNG 里（解出来就是 build_metadata 的原样输出）。
+    """
+    req = meta.get("request") or {}
+    m = meta.get("model") or {}
+    return {
+        "schema": meta.get("schema"),
+        "schema_version": meta.get("schema_version"),
+        "png_chunk": _META_CHUNK,
+        "model": m.get("model"),
+        "model_hash": (m.get("weights_sha256") or "")[:16] or None,
+        "model_hash_state": m.get("state"),
+        "seed": req.get("seed"),
+        "steps": req.get("num_inference_steps"),
+        "size": f"{req.get('width')}x{req.get('height')}",
+        "prompt": req.get("prompt"),
+        "inputs": [{"index": x.get("index"), "sha256": (x.get("sha256") or "")[:16],
+                    "size": f"{x.get('width')}x{x.get('height')}"}
+                   for x in (meta.get("inputs") or [])],
+        # content = 像素内容哈希（认图）；png = 含元数据的最终字节哈希（认文件）
+        "content_sha256": (meta.get("output") or {}).get("content_sha256"),
+        "png_sha256": (meta.get("output") or {}).get("png_sha256"),
+    }
+
+
+def _pixels_sha256(im: Image.Image) -> str:
+    """内容的规范指纹：对**解码后的原始像素**做哈希。
+
+    为什么不直接哈希 PNG 字节：PNG 编码结果依赖 zlib/Pillow 版本，同一张图在不同
+    版本上写出的字节不同 —— 实测过（本地 Pillow 与服务端就不是同一串）。像素才是确定的，
+    所以指纹算像素。
+
+    做法：统一转 RGBA 取 tobytes()，把尺寸一并拌进去
+    （否则「1x4 全黑」和「4x1 全黑」会撞）。跨平台、跨 Pillow 版本稳定。
+    """
+    im2 = im if im.mode == "RGBA" else im.convert("RGBA")
+    h = hashlib.sha256()
+    h.update(f"RGBA\0{im2.width}\0{im2.height}\0".encode())
+    h.update(im2.tobytes())
+    return h.hexdigest()
+
+
+def _attach_metadata(png: bytes, meta: Dict[str, Any]) -> tuple:
+    """把 JSON 元数据塞进 PNG 的 iTXt 块；返回 (新字节, 是否成功)。
+
+    先记下"未含元数据"的内容指纹（算像素，不算字节）再写块 ——
+    哈希一旦写进文件就不再等于文件自身的哈希，所以两个指纹分工：
+    content_sha256 认内容，png_sha256（由调用方回填）认最终文件。
+    """
+    try:
+        im = Image.open(io.BytesIO(png))
+        im.load()
+        meta["output"]["content_sha256"] = _pixels_sha256(im)
+        buf = io.BytesIO()
+        im.save(buf, format="PNG", compress_level=1, pnginfo=_make_pnginfo(meta))
+        return buf.getvalue(), True
+    except Exception as exc:                                           # noqa: BLE001
+        print(f"[meta] 写入 PNG 元数据失败（不影响出图）：{exc}", flush=True)
+        return png, False
+
+
+def finalize_metadata(item: Dict[str, Any]) -> None:
+    """给一张已生成好的图写元数据，并把两个哈希回填进去。
+
+    重试循环最终确定要用哪张图时会再调一次（补上审图结果）。
+    """
+    if PNG_METADATA == "none" or item.get("meta") is None:
+        return
+    try:
+        raw = base64.b64decode(item["b64_json"])
+        new_raw, ok = _attach_metadata(raw, item["meta"])
+        if ok:
+            item["b64_json"] = _b64(new_raw)
+            item["meta"]["output"]["png_sha256"] = hashlib.sha256(new_raw).hexdigest()
+            item["png_bytes_meta"] = len(new_raw) - len(raw)
+    except Exception as exc:                                           # noqa: BLE001
+        print(f"[meta] 元数据收尾失败（不影响出图）：{exc}", flush=True)
+
+
+def _make_pnginfo(meta: Dict[str, Any]):
+    info = PngImagePlugin.PngInfo()
+    payload = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
+    info.add_itxt(_META_CHUNK, payload, zip=False)
+    # 兼容按惯例读 "parameters" 的工具（A1111 / ComfyUI 生态）
+    r = meta.get("request", {})
+    human = (f"{r.get('prompt') or ''}\n"
+             f"Negative prompt: {r.get('negative_prompt') or ''}\n"
+             f"Steps: {r.get('num_inference_steps')}, "
+             f"Seed: {r.get('seed')}, Size: {r.get('width')}x{r.get('height')}, "
+             f"Model: {meta.get('model', {}).get('model')}, "
+             f"Model hash: {(meta.get('model', {}).get('weights_sha256') or '')[:16]}")
+    info.add_text("parameters", human)
+    return info
 
 
 @asynccontextmanager
@@ -254,6 +588,8 @@ async def get_pipe():
         except Exception:
             pass
         _pipe = pipe
+        # 权重就位后再去算模型指纹（后台线程，33 GB 全量 sha256，只算一次并落盘缓存）
+        start_fingerprint()
         return _pipe
 
 
@@ -325,7 +661,7 @@ def _progress_view(p: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         p["phase"] = "decoding"
         p["pct"] = 99.0
     keys = ("request_id", "status", "phase", "step", "steps_done", "total", "pct", "elapsed_s",
-            "eta_s", "per_step_s", "callback_unavailable", "error")
+            "eta_s", "per_step_s", "callback_unavailable", "error", "attempt", "max_attempts")
     view = {k: p.get(k) for k in keys}
     d = p.get("durations") or []
     if d:
@@ -336,9 +672,24 @@ def _progress_view(p: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     return view
 
 
-async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _norm_seed(value: Any) -> Optional[int]:
+    """把请求里的 seed 归一成"合法种子 or None"。
+
+    约定：**留空、空串、负数一律等于"没指定"** —— 服务端自己掷一个真随机种子。
+    负数不是合法种子，以前会被原样塞进 torch.Generator，等于把一个假的可复现参数
+    还给用户（照抄那个负数并不能复现）。所以在这里就抹平成 None。
+    """
+    if value is None or value == "":
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 0 else None
+
+
+async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Blocking-ish generation, one request at a time on the GPU."""
-    global _queue_depth
     prompt = req["prompt"]
     width, height = req["width"], req["height"]
     steps = req["num_inference_steps"]
@@ -352,7 +703,6 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                   " The image has alpha channel and the background is transparent.")
 
     async with _gpu_lock:
-        _queue_depth = max(0, _queue_depth - 1)
         t0 = time.time()
         _require_gpu()
         # the allocator keeps freed blocks instead of returning them to the driver;
@@ -374,7 +724,7 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
         # 但返回里写 seed: 0，而 seed=0 跟"不传 seed"并不等价，拿 0 复现不出同一张。
         # 现在改成：不给就自己掷一个真随机种子，用它做 generator，然后如实返回。
         # 于是"随机生成"和"记下种子可复现"能同时成立。
-        seed_given = seed is not None
+        seed_given = bool(req.get("_seed_given_override", seed is not None))
         if not seed_given:
             seed = random.randrange(0, 2 ** 31 - 1)
         generator = torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(int(seed))
@@ -511,7 +861,7 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
             # 而对生成图来说这点压缩收益毫无意义。体积大约 +10%。
             im.save(buf, format="PNG" if fmt == "png" else fmt.upper(),
                     **({"compress_level": 1} if fmt == "png" else {}))
-            items.append({
+            item = {
                 "b64_json": _b64(buf.getvalue()),
                 # 多图时每张的种子依次 +1（和 generator 的推进方式一致），
                 # 这样每张图都能被单独复现
@@ -519,7 +869,8 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "seed_given": bool(seed_given),
                 "width": im.width, "height": im.height,
                 "mode": im.mode, "elapsed_s": elapsed,
-            })
+            }
+            items.append(item)
         prog["status"] = "done"
         prog["phase"] = "done"
         prog["encode_s"] = round(time.time() - t_enc, 2)
@@ -537,7 +888,88 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "decode_s": prog.get("decode_s"),
                 "encode_s": prog.get("encode_s"),
             }
+        # ── 把生成信息写进 PNG 自己（记录所有生成信息，且后续加字段兼容）──
+        # 放在这里而不是重试循环里：这里每张图的 seed/尺寸/耗时都已确定，
+        # 重试循环只负责最后补一次审图结果（见 _generate）。
+        if PNG_METADATA != "none":
+            n = len(items)
+            for i, item in enumerate(items):
+                req["extra"] = {"image_index": i, "image_count": n,
+                                "true_cfg_scale": kwargs.get("true_cfg_scale"),
+                                "guidance_scale": req.get("guidance_scale")}
+                item["meta"] = build_metadata(req, item, item.get("timing"))
+                finalize_metadata(item)
         return items
+
+
+async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Generate once, or review and reroll with a fresh seed when opted in."""
+    global _queue_depth
+    _queue_depth = max(0, _queue_depth - 1)
+    enabled = bool(req.get("anatomy_check")) and not _effective_mock()
+    max_retries = max(0, min(int(req.get("anatomy_max_retries", 2)), 5)) if enabled else 0
+    attempts = max_retries + 1
+    used_seeds = set()
+    reviews: List[Dict[str, Any]] = []
+    original_seed_given = _norm_seed(req.get("seed")) is not None   # 负数/空 = 没指定
+
+    for attempt in range(attempts):
+        current = dict(req)
+        current["_seed_given_override"] = original_seed_given if attempt == 0 else False
+        if attempt:
+            next_seed = random.randrange(0, 2 ** 31 - 1)
+            while next_seed in used_seeds:
+                next_seed = random.randrange(0, 2 ** 31 - 1)
+            current["seed"] = next_seed
+        items = await _generate_once(current)
+        used_seeds.update(item.get("seed") for item in items if item.get("seed") is not None)
+
+        if not enabled:
+            return items
+
+        rid = (items[0].get("timing") or {}).get("request_id") if items else None
+        prog = _progress.get(rid) if rid else None
+        if prog is not None:
+            prog["status"] = "validating"
+            prog["phase"] = "anatomy_check"
+            prog["attempt"] = attempt + 1
+            prog["max_attempts"] = attempts
+
+        verdicts = []
+        for item in items:
+            raw = base64.b64decode(item["b64_json"])
+            image = Image.open(io.BytesIO(raw)).convert("RGB")
+            verdict = await asyncio.get_running_loop().run_in_executor(
+                None, inspect_anatomy, image, req.get("prompt", ""))
+            verdicts.append(verdict)
+        passed = all(v.get("passed", True) for v in verdicts)
+        reviews.append({"attempt": attempt + 1, "seed": items[0].get("seed"),
+                        "passed": passed, "verdicts": verdicts})
+        if passed or attempt >= max_retries:
+            for item in items:
+                item["anatomy_check"] = {
+                    "enabled": True,
+                    "passed": passed,
+                    "attempts": attempt + 1,
+                    "retries": attempt,
+                    "max_retries": max_retries,
+                    "exhausted": not passed,
+                    "history": reviews,
+                }
+                # 审图结果要进 PNG 元数据。前面写元数据时还没有它，
+                # 所以在这里重写一次（只多一次 PNG 转码，几百 ms）。
+                if item.get("meta") is not None:
+                    item["meta"]["anatomy_check"] = item["anatomy_check"]
+                    finalize_metadata(item)
+            if prog is not None:
+                prog["status"] = "done"
+                prog["phase"] = "done"
+            return items
+        if prog is not None:
+            prog["status"] = "retrying"
+            prog["phase"] = "anatomy_retry"
+
+    raise RuntimeError("unreachable anatomy retry state")
 
 
 def _valid_keys() -> List[str]:
@@ -708,7 +1140,9 @@ async def health():
         "loaded": _pipe is not None,
         "mode": MODE,
         "mock": _effective_mock(),
-        "checkpoint": {"dir": MODEL_DIR, "present": bool(ckpt)},
+        "checkpoint": {"dir": MODEL_DIR, "present": bool(ckpt),
+                       # 元数据里写的模型身份就是这一份；state=partial 表示全量 sha256 还在算
+                       "fingerprint": model_fingerprint()},
         "dtype": DTYPE_NAME,
         "offload": OFFLOAD,
         "preload": PRELOAD,
@@ -720,8 +1154,9 @@ async def health():
         "session_ttl_h": SESSION_TTL // 3600,
         "active": _progress_view(next(
             (p for p in sorted(_progress.values(), key=lambda x: x["started"], reverse=True)
-             if p["status"] in ("queued", "running")), None)),
+             if p["status"] in ("queued", "running", "decoding", "encoding", "validating", "retrying")), None)),
         "gpu": gpu_info(),
+        "anatomy_checker": anatomy_status(),
     }
 
 
@@ -771,6 +1206,7 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
     ctype = (request.headers.get("content-type") or "").lower()
     rid_hdr = request.headers.get("x-request-id")
     images_in: List[Image.Image] = []
+    image_names: List[Optional[str]] = []
     neg = None
     gscale = None
 
@@ -783,9 +1219,11 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
 
         prompt = str(f.get("prompt") or "")
         steps = int(g("num_inference_steps", 40))
-        seed = int(g("seed")) if g("seed") is not None else None
+        seed = _norm_seed(g("seed"))          # 留空 / 负数 = 服务端自己掷
         output_format = str(g("output_format", "png"))
         transparent = str(g("transparent", "")).lower() in ("1", "true", "on", "yes")
+        anatomy_check = str(g("anatomy_check", "")).lower() in ("1", "true", "on", "yes")
+        anatomy_max_retries = int(g("anatomy_max_retries", 2))
         width = int(g("width")) if g("width") is not None else None
         height = int(g("height")) if g("height") is not None else None
         outres = int(g("output_resolution")) if g("output_resolution") is not None else None
@@ -802,13 +1240,17 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
                     raw = await up.read()
                     if raw:
                         images_in.append(Image.open(io.BytesIO(raw)).convert("RGBA"))
+                        # 记下上传时的文件名，只进元数据（顺序即 <imageN> 的编号）
+                        image_names.append(getattr(up, "filename", None))
     else:
         b = await request.json()
         prompt = b.get("prompt")
         steps = int(b.get("num_inference_steps", 40))
-        seed = b.get("seed")
+        seed = _norm_seed(b.get("seed"))      # 留空 / 负数 = 服务端自己掷
         output_format = b.get("output_format", "png")
         transparent = bool(b.get("transparent", False))
+        anatomy_check = bool(b.get("anatomy_check", False))
+        anatomy_max_retries = int(b.get("anatomy_max_retries", 2))
         width, height = b.get("width"), b.get("height")
         outres = b.get("output_resolution")
         aspect = b.get("aspect_ratio")
@@ -820,6 +1262,7 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
                 if isinstance(b64, str) and b64.startswith("data:"):
                     b64 = b64.split(",", 1)[1]
                 images_in.append(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA"))
+                image_names.append("image_b64")
             except Exception:                                        # noqa: BLE001
                 raise HTTPException(400, "image_b64 里有无法解码的图片")
 
@@ -859,8 +1302,10 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
         "explicit_size": bool(images_in),        # 有图时一律显式传宽高（值来自推导或用户）
         "num_inference_steps": steps, "seed": seed,
         "output_format": output_format, "transparent": transparent,
+        "anatomy_check": anatomy_check, "anatomy_max_retries": anatomy_max_retries,
         "guidance_scale": gscale, "negative_prompt": neg,
-        "output_resolution": outres, "images": images_in, "request_id": request_id,
+        "output_resolution": outres, "images": images_in, "image_names": image_names,
+        "request_id": request_id,
     }
 
 
@@ -882,6 +1327,12 @@ async def generations(request: Request):
     _queue_depth += 1
     items = await _generate(req)
     rid = items[0].get("timing", {}).get("request_id")
+    # PNG 里已经带着同一份元数据（iTXt 的 qwen_image_21 键），响应里再塞一遍会让
+    # base64 体积白白翻倍，所以这里只留一个精简版：给不想解 PNG 的调用方用。
+    for it in items:
+        meta = it.pop("meta", None)
+        if meta:
+            it["metadata"] = _slim_metadata(meta)
     return JSONResponse({"created": int(time.time()), "model": MODEL_VERSION,
                          "size": f"{items[0]['width']}x{items[0]['height']}", "data": items},
                         headers={"X-Request-Id": rid} if rid else None)
@@ -932,6 +1383,8 @@ async def create_job(request: Request, tasks: BackgroundTasks):
         "num_inference_steps": int(body.get("num_inference_steps", 40)),
         "seed": body.get("seed"), "output_format": body.get("output_format", "png"),
         "transparent": body.get("transparent", False),
+        "anatomy_check": bool(body.get("anatomy_check", False)),
+        "anatomy_max_retries": int(body.get("anatomy_max_retries", 2)),
         "guidance_scale": body.get("guidance_scale"),
         "negative_prompt": body.get("negative_prompt"),
     }

@@ -1,5 +1,122 @@
 # CHANGELOG
 
+## 2026-09-26（深夜 · 第二十二批）· 生成图自带元数据（模型 hash / 输入 hash / 全部参数）
+
+### 用户要求
+"历史生成图的 png 里面有 Metadata 记录生成信息吗？没有的话添加一个逻辑，
+注意还要可以兼容后续加的字段，要记录所有的生成信息，例如模型 hash，输入的内容，
+图片的话要图片 hash"
+
+### 先查：一点都没有
+
+实测 8 张旧图（`/root/qwen-image-2.1/outputs/*.png` 等）：`info keys` 全空、EXIF 0 个 tag。
+PIL 默认不写任何生成信息，`QwenImage21PipelineOutput` 也只有 `images`，服务端此前也没补。
+**旧图无法追溯补回**（信息已经丢了），元数据从这一版之后的新图开始才有。
+
+### 设计（前向兼容是硬要求）
+
+- 载荷放在 PNG 的 **iTXt** 文本块，键名 `qwen_image_21`，UTF-8 JSON。
+  选 iTXt 而不是 tEXt：tEXt 是 latin-1，中文 prompt 会截断。
+- 同时写一份 `parameters` 纯文本键，兼容 A1111 / ComfyUI 那类按惯例读它的工具。
+- **带版本号**：`{"schema": "qwen-image-2.1/generation", "schema_version": 1, ...}`；
+  读取方约定忽略不认识的字段 —— 加字段不破坏老读取方。有专门测试覆盖这条。
+- 关得掉：`QWEN_PNG_METADATA=none`。
+
+### 记录了什么
+
+模型身份（**全量 SHA-256**，29 个文件 / 33.1 GB，启动后台算一次并落盘缓存；
+`state=partial` 时退回 `light_digest` 并如实标注）、prompt / negative /
+尺寸 / steps / **实际种子** / seed_given / CFG / 参考图逐张 sha256 + 尺寸 + 文件名
+（`index` 对应 prompt 里的 `<imageN>`）、耗时分段、torch/CUDA/GPU/Python 版本、
+审图结果（开了才有）。API 响应里给一份精简版，不占 base64 体积。
+
+### 实现中撞到的两个真问题（都已修）
+
+1. **文件自身的哈希不能存在文件里**（自指）。所以拆成两个指纹：
+   - `output.content_sha256` — 写进 PNG，用于认图
+   - `output.png_sha256` — 只在响应里，用于认文件
+2. **PNG 编码字节不能当内容指纹**。实测：本地 Pillow 与服务端对同一张图写出的字节不同
+   （编码依赖 zlib/Pillow 版本）。改成对**解码后像素**做哈希（统一 RGBA + 尺寸拌入），
+   跨机器、跨 Pillow 版本稳定。这条是本地 `--verify` 对不上时发现的。
+
+### 验证（remote/scripts/_meta_verify.py）
+
+21 项断言全过 ✅：元数据存在 / schema 版本化 / prompt 原文 / seed 与响应一致 /
+模型全量 hash / 环境信息 / 两个哈希各自的语义 / 输入图 hash 与 `<imageN>` 编号对应 /
+**未知字段被忽略且不丢数据** / 体积开销 +1.6 KB。
+
+跨机器验证：实例生成 → 下载到本地 → `python tools/read_metadata.py --verify`
+→ **内容校验通过**（两端 Pillow 版本不同）。
+
+### 工具
+
+- `tools/read_metadata.py` — 读元数据（`--json` / `--verify` / 支持 glob 批量）
+- `tools/ssh_retry.py` — 实例 SSH 偶发 "Error reading SSH protocol banner"，
+  带重试的调用封装
+- `docs/METADATA.md` — 字段表、两个哈希的区别、复现步骤、校验代码
+
+---
+
+## 2026-09-26（晚 · 第二十一批）· 选项文字折到下一行 + seed 的两个逻辑 bug
+
+### 用户反馈
+
+1. "选项对钩后面的说明文字折到下行了"
+2. "每次生成图之后不应该回填随机数，用户留空或者填 <0 的数都是随机，点击某张图想要复现时才填这个历史记录的 seed"
+
+### 问题 1：纯 CSS 层叠事故（一眼能看出根因）
+
+`.chk` 早在第 33 行就写了 `display:flex`（对钩与说明文字同一行），后来有人补开关时
+又加了一条 `.chk{display:block}`。两条同权重，**后写的赢** —— `label` 于是回到全局的
+`label{display:block}`，说明文字就被挤到对钩下面另起一行。
+
+修法：删掉那条覆盖，并把 `label` 明确声明成 flex 项：
+
+```css
+.chk input{width:auto;flex:0 0 auto;margin:3px 0 0}
+.chk label{display:block;flex:1 1 auto;min-width:0;margin:0;font-size:13px;
+           color:var(--fg);line-height:1.6}
+```
+
+长文本现在在**自身宽度内折行**，而不是整体换到对钩下面。
+
+### 问题 2：seed 有两处错，一处是假的可复现参数
+
+**a) 负数被当成真种子用。** multipart 分支 `int(g("seed"))`、JSON 分支 `b.get("seed")`，
+`seed=-5` 会原样进 `torch.Generator().manual_seed(-5)`，响应里还把 `-5` 回给用户 ——
+照抄这个数并不能复现。两条分支现在共用 `_norm_seed()`：`None` / `""` / 负数 一律 → `None`。
+
+**b) 出图后把随机种子写回输入框。** 上一批为了"想复现时有个值可抄"做了自动回填（第 1028 行），
+副作用是**留空从此变成固定**：用户不动它，下一张就是上一张的复刻。现在：
+
+| 行为 | 改成 |
+|---|---|
+| 出图后回填 seed 输入框 | **不回填**（留空就一直随机），实际种子仍显示在右上角卡片与历史里 |
+| 想复现 | **点右侧历史的缩略图** —— 这一下才把该图的 seed 填进输入框（带一行日志） |
+| 「复用当前参数」 | 仍带上 seed，日志注明"想重新随机就把 seed 清空" |
+| CSS / 文案 | seed tooltip 与 placeholder 改成"留空或负数=随机" |
+
+### 实测
+
+实例上真跑（`remote/scripts/_verify_ui_seed_fix.sh`，走 127.0.0.1:6006）：
+
+| 请求 | 响应 |
+|---|---|
+| 不传 seed | `seed=854362748 seed_given=false` ✅ |
+| `seed=-5` / `-1` | 随机，`seed_given=false` ✅ |
+| `seed=0` | `seed=0 seed_given=true` ✅（0 是合法种子） |
+| `seed=4242` | `seed=4242 seed_given=true` ✅ |
+| 编辑 multipart `seed=-7` / `7` | 随机 / `seed=7` ✅ |
+
+**回归测试（新增，纯本地、不连实例）：** `python tools/webui_logic_check.py`
+- `tools/webui_dom_check.js` 用 DOM 桩子在 Node 里**真跑页面脚本**：`seed=""`/`"-5"` →
+  `params().seed === undefined`；`showHist(0)` → 输入框变成该图 seed；清空 → 又回到随机。
+  （本沙箱禁止启动 msedge/chrome，所以走 Node 桩子；`webui_logic_check.py` 里附账号
+  `.chk` 的 CSS 级联检查，确保最终的 `display` 是 `flex`。）
+- 11 项全过。
+
+---
+
 ## 2026-09-26（晚 · 第二十批）· 留空种子会错报成 0
 
 ### 用户反馈
