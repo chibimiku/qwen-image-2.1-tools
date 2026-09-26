@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -28,14 +29,14 @@ RULES: list[tuple[str, re.Pattern]] = [
     ("api key (primary)", re.compile(r"rp9iz1g3" + r"fsuweo2vhctx8klja64n")),
     ("ssh host", re.compile(r"connect\.west[bd]\.seetacloud\.com")),
     ("ssh port", re.compile(r"\b43" + r"611\b")),
-    ("public entry", re.compile(r"u+57736" + r"-b87a-de5c81ec")),
+    ("public entry", re.compile(r"u+57736" + r"-b87a" + r"-de5c81ec")),
     ("container ip", re.compile(r"172\.17\.0\.8")),
     ("jupyter token", re.compile(r"(?i)token[\"'\s:=]+[0-9a-f]{32,}")),
     ("bearer literal", re.compile(r"(?i)authorization:\s*bearer\s+(?!<|\$\{|CHANGE)[A-Za-z0-9_\-]{16,}")),
-    # 只抓"赋值了一个看起来是真的字面量"，放过 env 读取/占位符/空串
+    # 只抓"赋值了一个看起来是真的字面量"，放过 env 读取 / 占位符 / 空串 / 变量转传
     ("password literal", re.compile(
         r"(?i)(password|passwd|pwd)\s*[=:]\s*[\"']?(?!os\.environ|getenv|<|\$\{|CHANGE|"
-        r"your|YOUR|\"\s*$|'\s*$|\s*$)[A-Za-z0-9+@#$%^&*_.\-]{8,}")),
+        r"your|YOUR|[A-Z_]{4,}\b|\"\s*$|'\s*$|\s*$)[A-Za-z0-9+@#$%^&*_.\-]{8,}")),
     ("api key literal", re.compile(
         r"(?i)(QWEN_API_KEY|API_KEY|APIKEY|SECRET|TOKEN)\s*[=:]\s*[\"']?(?!os\.environ|getenv|"
         r"<|\$\{|CHANGE|your|YOUR|\"\s*$|'\s*$|\s*$)[A-Za-z0-9_\-]{16,}")),
@@ -43,7 +44,30 @@ RULES: list[tuple[str, re.Pattern]] = [
 ]
 
 
+def _ignored_set(paths: list[pathlib.Path]) -> set[pathlib.Path]:
+    """列出被 gitignore 排除的文件（只扫会被提交的内容，噪声最少）。
+
+    用 `git ls-files -oi --exclude-standard` 一次拿全，做成集合再比对，
+    比逐个调 `git check-ignore` 稳（`--stdin` 在某些版本上行为不一致）。
+    git 不可用 / 不是仓库时返回空集，退化为全扫。
+    """
+    if not paths:
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "-oi", "--exclude-standard"],
+            cwd=str(ROOT), capture_output=True, text=True, timeout=120,
+        )
+    except Exception:                                                  # noqa: BLE001
+        return set()
+    if proc.returncode != 0:
+        return set()
+    out = proc.stdout.replace("\\", "/")
+    return {ROOT / line.strip() for line in out.splitlines() if line.strip()}
+
+
 def iter_files():
+    cands = []
     for p in sorted(ROOT.rglob("*")):
         if not p.is_file():
             continue
@@ -52,6 +76,11 @@ def iter_files():
         if p.suffix.lower() not in TEXT_EXT and p.suffix != "":
             continue
         if p.stat().st_size > 4 * 1024 * 1024:
+            continue
+        cands.append(p)
+    ignored = _ignored_set(cands)
+    for p in cands:
+        if ignored and p in ignored:
             continue
         yield p
 
