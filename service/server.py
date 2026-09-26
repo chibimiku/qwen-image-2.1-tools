@@ -30,6 +30,7 @@ import io
 import json
 import math
 import os
+import pathlib
 import random
 import re
 import secrets
@@ -84,7 +85,15 @@ SESSION_TTL = int(os.environ.get("QWEN_SESSION_HOURS", "24")) * 3600
 SESSIONS: Dict[str, float] = {}          # token -> 过期时间戳
 COOKIE_SECURE = os.environ.get("QWEN_COOKIE_SECURE", "1") == "1"   # 公网是 https，默认 Secure
 MAX_QUEUE = int(os.environ.get("QWEN_MAX_QUEUE", "64"))
-OUT_DIR = os.environ.get("QWEN_OUT_DIR", os.path.join(os.path.dirname(MODEL_DIR.rstrip("/")), "outputs"))
+# 生成图落盘目录：默认挂在 service/ 旁边，即 /root/qwen-image-2.1/outputs。
+# 早先是按 MODEL_DIR 的父目录算的，于是权重在 /root/autodl-tmp 时它会落到
+# /root/autodl-tmp/outputs —— 和文档、bootstrap.sh、人习惯看的地方全对不上，
+# 产物分了两处（实测踩到）。改成跟代码走，换机、换权重位置都一致。
+OUT_DIR = os.environ.get("QWEN_OUT_DIR", os.path.join(_HERE, "..", "outputs"))
+OUT_DIR = os.path.abspath(OUT_DIR)
+# 每次生成都把图落到 <OUT_DIR>/YYYY-MM-DD/序号-seed.png。
+# 以前只有 --out 之类的脚本才存盘，界面上出的图不点「下载」就丢了。
+SAVE_OUTPUTS = os.environ.get("QWEN_SAVE_OUTPUTS", "1") not in ("0", "false", "no")
 MODEL_VERSION = "Qwen-Image-2.1"
 # 48G 单卡（魔改 4090）全 BF16 常驻经验值：权重 32.4 GiB + 每张 2048² latent 约 8 GiB + 余量
 # 这个值只用于"建议尺寸"的预算计算；preflight 用的是 free 本身，所以调大它不会误拦。
@@ -111,6 +120,8 @@ _jobs: Dict[str, Dict[str, Any]] = {}
 _load_error: Optional[str] = None
 _peak_gib = 0.0
 _queue_depth = 0
+# 落盘用：序号分配要串行，否则两个并发请求会拿到同一个序号
+_save_lock = threading.Lock()
 # 中止信号：request_id -> {"grace_until": ts or None, ...}
 # 放在这里而不是 task 里，是为了让 DELETE /v1/jobs/{id} 也能给"正在跑"的任务下中断指令。
 _cancel: Dict[str, Dict[str, Any]] = {}
@@ -392,6 +403,8 @@ def _slim_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
         # content = 像素内容哈希（认图）；png = 含元数据的最终字节哈希（认文件）
         "content_sha256": (meta.get("output") or {}).get("content_sha256"),
         "png_sha256": (meta.get("output") or {}).get("png_sha256"),
+        # 落盘位置（服务端自动存的那一份，界面用不着再点下载）
+        "saved_path": meta.get("saved_path"),
     }
 
 
@@ -432,21 +445,68 @@ def _attach_metadata(png: bytes, meta: Dict[str, Any]) -> tuple:
 
 
 def finalize_metadata(item: Dict[str, Any]) -> None:
-    """给一张已生成好的图写元数据，并把两个哈希回填进去。
+    """给一张图写元数据，并把两个哈希回填进去。
 
-    重试循环最终确定要用哪张图时会再调一次（补上审图结果）。
+    优先用 item["_raw"]（编码后的原字节）—— 这样只在内存里转一次，
+    不必 base64 解码再编码。落盘与回包用的是同一个 blob，两边逐字节一致。
     """
-    if PNG_METADATA == "none" or item.get("meta") is None:
+    if item.get("meta") is None:
         return
-    try:
+    raw = item.get("_raw")
+    if raw is None:
+        if not item.get("b64_json"):
+            return
         raw = base64.b64decode(item["b64_json"])
+    try:
         new_raw, ok = _attach_metadata(raw, item["meta"])
         if ok:
-            item["b64_json"] = _b64(new_raw)
+            item["_raw"] = new_raw
             item["meta"]["output"]["png_sha256"] = hashlib.sha256(new_raw).hexdigest()
             item["png_bytes_meta"] = len(new_raw) - len(raw)
     except Exception as exc:                                           # noqa: BLE001
         print(f"[meta] 元数据收尾失败（不影响出图）：{exc}", flush=True)
+
+
+def _next_index(day_dir: pathlib.Path) -> int:
+    """当天目录里已有序号的最大值 + 1（文件名形如 03-123456.png）。"""
+    n = 0
+    try:
+        for p in day_dir.iterdir():
+            m = re.match(r"^(\d+)-", p.name)
+            if m:
+                n = max(n, int(m.group(1)))
+    except FileNotFoundError:
+        return 1
+    return n + 1
+
+
+def allocate_output_path(item: Dict[str, Any]) -> Optional[str]:
+    """先定好这次要存到哪个路径（outputs/YYYY-MM-DD/序号-seed.png）。
+
+    顺序很重要：**先定路径 → 写进元数据 → 再序列化 PNG → 最后写盘**。
+    反过来的话，图里的元数据会缺 saved_path（磁盘上的和回包的就对不上了）。
+    """
+    if not SAVE_OUTPUTS:
+        return None
+    try:
+        day_dir = pathlib.Path(OUT_DIR) / time.strftime("%Y-%m-%d")
+        day_dir.mkdir(parents=True, exist_ok=True)
+        with _save_lock:                      # 序号分配要串行，否则并发会撞号
+            idx = _next_index(day_dir)
+            return str(day_dir / f"{idx:02d}-{item.get('seed', 'x')}.png")
+    except Exception as exc:                                           # noqa: BLE001
+        print(f"[save] 分配输出路径失败：{type(exc).__name__}: {exc}", flush=True)
+        return None
+
+
+def write_output(path: Optional[str], blob: bytes) -> None:
+    """把最终字节写到预分配的路径。失败只记日志 —— 存不下来不能让用户拿不到图。"""
+    if not path or not blob:
+        return
+    try:
+        pathlib.Path(path).write_bytes(blob)
+    except Exception as exc:                                           # noqa: BLE001
+        print(f"[save] 写文件失败（不影响回包）：{type(exc).__name__}: {exc}", flush=True)
 
 
 def _make_pnginfo(meta: Dict[str, Any]):
@@ -1004,7 +1064,7 @@ async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
             im.save(buf, format="PNG" if fmt == "png" else fmt.upper(),
                     **({"compress_level": 1} if fmt == "png" else {}))
             item = {
-                "b64_json": _b64(buf.getvalue()),
+                "_raw": buf.getvalue(),          # 编码后的原字节；落盘与回包都用它
                 # 多图时每张的种子依次 +1（和 generator 的推进方式一致），
                 # 这样每张图都能被单独复现
                 "seed": int(seed) + i,
@@ -1039,8 +1099,19 @@ async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                 req["extra"] = {"image_index": i, "image_count": n,
                                 "true_cfg_scale": kwargs.get("true_cfg_scale"),
                                 "guidance_scale": req.get("guidance_scale")}
+                item["saved_path"] = allocate_output_path(item)      # 先定路径
                 item["meta"] = build_metadata(req, item, item.get("timing"))
+                if item.get("saved_path"):                           # 路径进元数据
+                    item["meta"]["saved_path"] = item["saved_path"]
+                    item["meta"].setdefault("output", {})["saved_path"] = item["saved_path"]
                 finalize_metadata(item)
+        # 落盘 + 回包用同一份字节（逐字节一致；图里的元数据也含 saved_path）
+        for item in items:
+            blob = item.get("_raw") or (base64.b64decode(item["b64_json"])
+                                        if item.get("b64_json") else b"")
+            write_output(item.get("saved_path") or allocate_output_path(item), blob)
+            item.pop("_raw", None)
+            item["b64_json"] = _b64(blob)
         return items
 
 
@@ -1103,6 +1174,11 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
                 if item.get("meta") is not None:
                     item["meta"]["anatomy_check"] = item["anatomy_check"]
                     finalize_metadata(item)
+                # 磁盘上的那份也要带上审图结果，否则文件与回包不一致
+                blob = item.get("_raw") or base64.b64decode(item["b64_json"])
+                write_output(item.get("saved_path"), blob)
+                item.pop("_raw", None)
+                item["b64_json"] = _b64(blob)
             if prog is not None:
                 prog["status"] = "done"
                 prog["phase"] = "done"
@@ -1480,6 +1556,7 @@ async def generations(request: Request):
     # base64 体积白白翻倍，所以这里只留一个精简版：给不想解 PNG 的调用方用。
     for it in items:
         meta = it.pop("meta", None)
+        it.pop("_raw", None)          # 内部字段，别进回包
         if meta:
             it["metadata"] = _slim_metadata(meta)
     return JSONResponse({"created": int(time.time()), "model": MODEL_VERSION,

@@ -1421,8 +1421,12 @@ async function run(){
       : '';
     const ac = item.anatomy_check;
     const anatomyNote = ac ? ` · 人体复检${ac.passed ? '通过' : '重试用尽'}（生成 ${ac.attempts} 次）` : '';
+    // 服务端已经自动存盘，告诉用户一声（不用再点「下载当前图」）
+    const saved = (item.metadata || {}).saved_path;
+    const saveNote = saved ? `\n   ↳ 已自动保存：${saved}` : '';
     log(`完成：${item.width}×${item.height} · ${elapsed.toFixed(1)}s${perStep}${seedNote}`
-        + anatomyNote + (tm.prep_s ? `（其中准备开销 ${tm.prep_s}s）` : ''), ac && !ac.passed ? 'err' : 'ok');
+        + anatomyNote + (tm.prep_s ? `（其中准备开销 ${tm.prep_s}s）` : '') + saveNote,
+        ac && !ac.passed ? 'err' : 'ok');
     pushHist(item, elapsed);
     saveForm();                    // 出图成功后连同这次用的参数一起记住
     probe();

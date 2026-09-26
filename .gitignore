@@ -23,6 +23,12 @@ test-data/
 reports/
 tmp_refs/
 
+# 生成图：服务端从这一版起自动落盘到 outputs/YYYY-MM-DD/序号-seed.png。
+# 这是产物，绝不提交（镜像里 /root/qwen-image-2.1/outputs 同理，不属于服务端代码）。
+outputs/
+**/outputs/
+outputs/**/*.png
+
 # 编辑器 / 系统
 .vscode/
 .idea/
@@ -57,6 +63,12 @@ tunnel_run.log
 test-data/
 reports/
 tmp_refs/
+
+# 生成图：服务端从这一版起自动落盘到 outputs/YYYY-MM-DD/序号-seed.png。
+# 这是产物，绝不提交（镜像里 /root/qwen-image-2.1/outputs 同理，不属于服务端代码）。
+outputs/
+**/outputs/
+outputs/**/*.png
 
 # 编辑器 / 系统
 .vscode/

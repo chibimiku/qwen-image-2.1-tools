@@ -474,7 +474,6 @@ curl -s -X POST "$BASE/v1/progress/$RID/cancel" -H "Authorization: Bearer $KEY"
 > 服务端只负责"连当前这个也停"，也就是上面这条。
 
 ### 3.9.2 `GET /v1/fit` — 这个比例/尺寸在当前显存下最大能跑多少
-
 选比例后不该撞 OOM 才知道。这条端点按**实测标定**的显存模型反算出"同比例、能跑的尺寸"，
 UI 用它把官方 2K 档位显示成「官方 1696×2528 → 能跑 1120×1664」。
 
@@ -505,6 +504,40 @@ curl -s "$BASE/v1/fit?ratio=2:3&mode=edit&steps=30" -H "Authorization: Bearer $K
 preflight：1696x2528（4.29MP）/26 步需要约 67.1 GiB 额外显存，当前只有 16.6 GiB 可用。
 同比例能跑的最大尺寸：1120x1664（1.86MP，同一比例 0.671）。想更大只能开 QWEN_OFFLOAD=model。
 ```
+
+### 3.9.3 生成图自动落盘（不用再点「下载」）
+
+**从 2026-09-26 那版起，每次生成服务端都会把图存到磁盘**：
+
+```
+/root/qwen-image-2.1/outputs/2026-09-27/01-1834720519.png
+└────── OUT_DIR ──────┘ └─ 日期 ─┘ └序号┘ └── seed ──┘
+```
+
+- **目录**：`YYYY-MM-DD`（服务器本地日期，跨天自动新建）。
+- **文件名**：`序号-seed.png`。序号是**当天连续递增**（两位补零），
+  分配时只看形如 `NN-` 的文件，所以 outputs 根目录里那些手工命名（`hug_two_people.png`）
+  的历史图不会被算进去。并发写入有锁保护，不会撞号。
+- **落盘的那份与 API 返回的那份逐字节一致** —— 服务端先算好带元数据的字节，
+  同一份既写盘又 base64 回包，不是转两次。图里的 iTXt 元数据也含 `saved_path`。
+
+响应里直接给出路径，`GET /v1/jobs/{id}` 的结果里同样有：
+
+```json
+"metadata": {"saved_path": "/root/qwen-image-2.1/outputs/2026-09-27/01-1834720519.png", ...}
+```
+
+关掉它（例如做压测、不想留一堆图）：
+
+```bash
+export QWEN_SAVE_OUTPUTS=0        # 0/false/no 都算关
+export QWEN_OUT_DIR=/path/to/dir  # 换落盘根目录（默认 <service 目录>/../outputs）
+```
+
+> **落盘失败不会影响出图** —— 只打一行日志，图和响应照常返回。
+> 这是有意的：存不下来不该让用户拿不到图。
+
+`tools/pull_outputs.py` 会把整个 outputs 拉到本地并生成带标签的总览图。
 
 ### 3.10 会话（Cookie 登录，控制台用）
 
