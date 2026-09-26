@@ -94,6 +94,9 @@ OUT_DIR = os.path.abspath(OUT_DIR)
 # 每次生成都把图落到 <OUT_DIR>/YYYY-MM-DD/序号-seed.png。
 # 以前只有 --out 之类的脚本才存盘，界面上出的图不点「下载」就丢了。
 SAVE_OUTPUTS = os.environ.get("QWEN_SAVE_OUTPUTS", "1") not in ("0", "false", "no")
+# 尺寸超出显存时自动同比例缩（而不是 507 拒绝）。用户选档位表达的是"要这个比例"，
+# 不是"要这么多像素"。设 0 可恢复成"直接拒绝"。
+SAVE_FITTING = os.environ.get("QWEN_AUTO_FIT", "1") not in ("0", "false", "no")
 MODEL_VERSION = "Qwen-Image-2.1"
 # 48G 单卡（魔改 4090）全 BF16 常驻经验值：权重 32.4 GiB + 每张 2048² latent 约 8 GiB + 余量
 # 这个值只用于"建议尺寸"的预算计算；preflight 用的是 free 本身，所以调大它不会误拦。
@@ -348,6 +351,8 @@ def build_metadata(req: Dict[str, Any], item: Dict[str, Any],
             "aspect_ratio": req.get("aspect_ratio"),
             "output_resolution": req.get("output_resolution"),
             "num_inference_steps": req.get("num_inference_steps"),
+            # 自动缩过尺寸时这里有一句说明（用户选了档位但本机跑不动那个像素数）
+            "size_note": req.get("size_note"),
             "seed": item.get("seed"),
             "seed_given": item.get("seed_given"),
             "transparent": req.get("transparent"),
@@ -396,6 +401,7 @@ def _slim_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
         "seed": req.get("seed"),
         "steps": req.get("num_inference_steps"),
         "size": f"{req.get('width')}x{req.get('height')}",
+        "size_note": req.get("size_note"),
         "prompt": req.get("prompt"),
         "inputs": [{"index": x.get("index"), "sha256": (x.get("sha256") or "")[:16],
                     "size": f"{x.get('width')}x{x.get('height')}"}
@@ -656,6 +662,30 @@ def suggest_size(width: int, height: int, mode: str = "t2i", steps: int = 40) ->
         "mode": mode,
         "steps": steps,
     }
+
+
+def enforce_fitting_size(width: int, height: int, mode: str = "t2i",
+                         steps: int = 40) -> tuple:
+    """尺寸超出可用显存时，同比例缩到能跑的最大值；返回 (w, h, 调整说明或 None)。
+
+    为什么放在服务端兜：用户点了「2:3」档位，意图是"要 2:3 这个比例"，
+    不是"要 4.29MP 这个像素数"。官方档位是 2K 训练尺寸，本机编辑模式跑不动，
+    以前直接 507 拒绝 —— 用户看到的是"失败"，而不是"给你缩到能跑的 2:3"。
+    现在只要**比例是明确的**（选了档位、或手填了宽高），就保住比例缩尺寸。
+
+    文生图不受影响：它的已知可用阈值本来就覆盖全部官方 2K 档位。
+    """
+    if not SAVE_FITTING:
+        return width, height, None
+    if width * height / 1e6 <= max_mp_for_budget(transient_budget_gib(mode), steps, mode):
+        return width, height, None
+    ratio = (width / height) if height else 1.0
+    w, h = size_for_ratio(ratio, max_mp_for_budget(transient_budget_gib(mode), steps, mode))
+    if not w or not h:
+        return width, height, None
+    note = (f"原尺寸 {width}x{height}（{width * height / 1e6:.2f}MP）超出本机{mode}可用显存，"
+            f"已按同一比例缩到 {w}x{h}（{w * h / 1e6:.2f}MP）")
+    return w, h, note
 
 
 def estimate_transient_gib(width: int, height: int, steps: int, mode: str = "t2i") -> float:
@@ -1119,6 +1149,10 @@ async def _generate(req: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Generate once, or review and reroll with a fresh seed when opted in."""
     global _queue_depth
     _queue_depth = max(0, _queue_depth - 1)
+    if req.get("size_note"):
+        # 用户选了 2:3 这种官方 2K 档位，但本机编辑模式跑不动那个像素数 ——
+        # 进 _generate_once 之前已经同比例缩过了，这里显式说一声，免得以为尺寸被搞错
+        print(f"[size] {req['size_note']}", flush=True)
     enabled = bool(req.get("anatomy_check")) and not _effective_mock()
     max_retries = max(0, min(int(req.get("anatomy_max_retries", 2)), 5)) if enabled else 0
     attempts = max_retries + 1
@@ -1515,9 +1549,16 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
         height = round(raw_h / 32) * 32
         explicit = True
 
+    # 最后一道：尺寸确实塞不进显存时，同比例缩（保住用户要的比例），而不是拒绝。
+    # 放在这里的作用是"无论客户端算没算对，都不会因为档位尺寸过大而失败"。
+    mode_now = "edit" if images_in else "t2i"
+    width, height, size_note = enforce_fitting_size(width, height, mode_now, steps)
+
     return {
         "prompt": prompt, "width": width, "height": height,
         "explicit_size": bool(images_in),        # 有图时一律显式传宽高（值来自推导或用户）
+        "size_note": size_note,                  # 缩过尺寸时这里有一句说明（进元数据/日志）
+        "aspect_ratio": aspect,
         "num_inference_steps": steps, "seed": seed,
         "output_format": output_format, "transparent": transparent,
         "anatomy_check": anatomy_check, "anatomy_max_retries": anatomy_max_retries,

@@ -1424,8 +1424,11 @@ async function run(){
     // 服务端已经自动存盘，告诉用户一声（不用再点「下载当前图」）
     const saved = (item.metadata || {}).saved_path;
     const saveNote = saved ? `\n   ↳ 已自动保存：${saved}` : '';
+    // 服务端把超出显存的档位尺寸同比例缩过了 —— 这不是错误，是保住了比例
+    const sizeNote = (item.metadata || {}).size_note;
+    const fitNote = sizeNote ? `\n   ↳ ${sizeNote}` : '';
     log(`完成：${item.width}×${item.height} · ${elapsed.toFixed(1)}s${perStep}${seedNote}`
-        + anatomyNote + (tm.prep_s ? `（其中准备开销 ${tm.prep_s}s）` : '') + saveNote,
+        + anatomyNote + (tm.prep_s ? `（其中准备开销 ${tm.prep_s}s）` : '') + saveNote + fitNote,
         ac && !ac.passed ? 'err' : 'ok');
     pushHist(item, elapsed);
     saveForm();                    // 出图成功后连同这次用的参数一起记住
