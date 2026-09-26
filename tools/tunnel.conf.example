@@ -1,0 +1,11 @@
+# 复制成 tools/tunnel.conf 后填自己的实例信息（该文件已被 .gitignore 排除）
+# tunnel_serve.py 会读它
+host=connect.west?.seetacloud.com
+port=<你的端口，例如 12345>
+user=root
+password=<你的实例密码>
+# 也可以改用密钥登录：把下面这行的 <私钥路径> 填上，password 留空即可
+# key=C:\Users\<你>\.ssh\id_ed25519
+local_port=16006
+remote_port=6006
+remote_host=127.0.0.1
