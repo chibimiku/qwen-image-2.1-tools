@@ -71,6 +71,10 @@
   .bitem.bad{border-color:var(--bad)}
   .bitem.skip{opacity:.45;text-decoration:line-through}
   .bsay{color:var(--dim);font-size:11px;margin-top:6px}
+  .fixbtn{display:inline-block;margin-top:8px;padding:6px 12px;border-radius:8px;
+          border:1px solid var(--accent);background:transparent;color:var(--accent);
+          cursor:pointer;font-size:13px}
+  .fixbtn:hover{background:var(--accent);color:#06121f}
   /* 这里原来有一条 `.chk{display:block}`，会覆盖上面的 flex —— 删掉。
      它让每个选项的说明文字掉到对钩下面另起一行（就是"折到下一行"那个 bug）。 */
  .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
@@ -572,6 +576,99 @@ function derivedSize(rw, rh, budget){
   return [Math.round(rawW / 32) * 32, Math.round(rawH / 32) * 32];
 }
 
+/* 各档位"在当前显存下能跑多大"的缓存（服务端算，key = 模式+步数+比例） */
+let FIT = {};
+
+function refRatioValue(){
+  // 参考图还没读出来时先按 1:1 估，读到之后再重算
+  const box = $('refsize');
+  if (box) box.dataset.ratio = box.dataset.ratio || '';
+  return null;
+}
+
+/* 向服务端要"各档位能跑多大"。一次全拿（含两种模式），切模式不用再打请求。
+   失败不抛，静默降级（不影响出图）。 */
+async function fitQuery(){
+  try {
+    const q = new URLSearchParams({all_ratios: 'true', steps: $('steps').value || '30'});
+    const r = await fetch(withKey(api('/v1/fit?' + q.toString())), {headers: authHeaders()});
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(e){ return null; }
+}
+
+/* 刷新 7 个档位的显示：官方尺寸 → 能跑的尺寸。
+   能跑就照官方档位；跑不动就显示被缩过的尺寸，编辑模式还会自动选用。 */
+async function refreshFitTable(){
+  const sel = $('ratio');
+  if (!sel) return;
+  const data = await fitQuery();
+  FIT = {};
+  const edit = (mode === 'edit');
+  const mkey = edit ? 'edit' : 't2i';
+  for (const o of [...sel.options]){
+    if (!o.value || !RATIO_TBL[o.value]) continue;
+    const off = RATIO_TBL[o.value];
+    const perMode = data && data.ratios && data.ratios[o.value];
+    const fit = perMode ? perMode[mkey] : null;
+    FIT[o.value] = fit;
+    if (!fit){ o.textContent = o.value + ' · ' + off[0] + '×' + off[1]; continue; }
+    if (fit.fits_as_is){
+      o.textContent = o.value + ' · ' + off[0] + '×' + off[1]
+        + (edit ? '' : '（官方 2K）');
+    } else {
+      o.textContent = o.value + ' · 官方 ' + off[0] + '×' + off[1]
+        + ' → 能跑 ' + fit.width + '×' + fit.height;
+    }
+  }
+  if (edit) applyFittedRatio();
+}
+
+/* 编辑模式下：如果当前选的档位跑不动，就用能跑的尺寸，并把宽高填进去。
+   注意必须同时解除"跟随参考图" —— 跟随开着时请求根本不带 width/height，填了也白填。 */
+function applyFittedRatio(){
+  const sel = $('ratio');
+  if (!sel || mode !== 'edit') return;
+  const fit = FIT[sel.value];
+  const note = $('rationote');
+  if (!sel.value || !fit || fit.fits_as_is) return;
+  const fr = $('followref');
+  if (fr && fr.checked){ fr.checked = false; syncFollowRef(); }
+  const w = $('width'), h = $('height');
+  if (w) w.value = fit.width;
+  if (h) h.value = fit.height;
+  if (note){
+    note.innerHTML = '这个档位官方是 ' + fit.requested.width + '×' + fit.requested.height
+      + '（' + fit.requested.mp + 'MP），本机编辑跑不动；已换成同比例的 <b>'
+      + fit.width + '×' + fit.height + '</b>（' + fit.fit_mp + 'MP）并解除跟随参考图';
+    note.style.display = 'block';
+    note.style.color = 'var(--accent)';
+  }
+}
+
+/* 失败时给一键修正：把尺寸换成"同比例能跑的最大值" */
+async function applyFitFix(btn, w, h){
+  const wEl = $('width'), hEl = $('height');
+  if (wEl) wEl.value = w;
+  if (hEl) hEl.value = h;
+  if ($('ratio')) $('ratio').value = '';      // 手填尺寸，取消档位
+  if ($('followref')) $('followref').checked = false;   // 解除跟随，否则宽高不会被发出去
+  syncFollowRef();
+  syncRatio();
+  saveForm();
+  if (btn) { btn.textContent = '已改为 ' + w + '×' + h + '，点「生成」再试'; btn.disabled = true; }
+  log('已把尺寸改成 ' + w + '×' + h + '（同比例、当前显存能跑），再点一次生成', 'ok');
+}
+
+/* preflight 错误里带着"同比例能跑的最大尺寸"，把它抽出来给个一键修正按钮 */
+function fitFixHTML(msg){
+  if (!(msg.includes('preflight') || msg.includes('额外显存'))) return '';
+  const m = msg.match(/最大尺寸[：:]\s*(\d{2,5})x(\d{2,5})/);
+  if (!m) return '';
+  return '<button class="fixbtn" onclick="applyFitFix(this,' + m[1] + ',' + m[2] + ')">改成 '
+       + m[1] + '×' + m[2] + ' 再试</button>';
+}
+
 function followRefOn(){ const el = $('followref'); return !!(el && el.checked); }
 
 /* 跟随参考图尺寸：编辑模式默认开。开启时请求不带 width/height，
@@ -686,7 +783,11 @@ function bindFormPersistence(){
       }
     });
   const sel = $('ratio');
-  if (sel) sel.addEventListener('change', () => { syncRatio(); saveForm(); });
+  if (sel) sel.addEventListener('change', () => {
+    syncRatio();
+    if (mode === 'edit') applyFittedRatio();
+    saveForm();
+  });
   window.addEventListener('beforeunload', saveForm);
 }
 
@@ -755,6 +856,7 @@ function setMode(m){
   syncRatio();
   syncFollowRef();
   refSizeHint();
+  refreshFitTable();   // 换模式后档位提示要跟着变（编辑与文生图的答案不同）
 }
 
 /* ---------------------------------------------------------------- 进度 */
@@ -908,13 +1010,22 @@ function batchRender(){
                : it.status === 'canceled' ? '✕'
                : it.error ? '!'
                : it.status === 'done' ? '✓' : '·';
-    const thumb = it.thumb ? `<img src="${it.thumb}">` : '';
+    const thumb = it.thumb
+      ? `<img src="${it.thumb}"${(it.seed !== undefined && it.seed !== null)
+          ? ` title="点这张图：把 seed ${it.seed} 填进输入框（想复现就点它）"
+             style="cursor:pointer" onclick="batchUseSeed(${i})"` : ''}>`
+      : '';
     const meta = it.error ? `<span class="bm" style="color:var(--bad)">${String(it.error).slice(0, 40)}</span>`
                : it.ms ? `<span class="bm">${(it.ms / 1000).toFixed(1)}s</span>` : '';
     const dl = it.thumb ? `<button class="bd" onclick="batchDl(${i})" title="下载">↓</button>` : '';
+    // preflight 拒绝时，把"改成能跑的尺寸"的按钮直接放到这一行里
+    const fixm = it.error && String(it.error).match(/最大尺寸[：:]\s*(\d{2,5})x(\d{2,5})/);
+    const fix = fixm
+      ? `<button class="bd" onclick="applyFitFix(this,${fixm[1]},${fixm[2]})" title="改成能跑的尺寸">修</button>`
+      : '';
     return `<div class="bitem ${cls}"><i>${mark}</i>${thumb}` +
            `<span class="bt" title="${it.prompt.replace(/"/g, '&quot;')}">${it.prompt}</span>` +
-           meta + dl + '</div>';
+           meta + dl + fix + '</div>';
   }).join('');
 }
 
@@ -925,6 +1036,16 @@ function batchDl(i){
   a.href = it.thumb;
   a.download = `batch_${String(i + 1).padStart(2, '0')}_seed${it.seed ?? 'x'}.png`;
   a.click();
+}
+
+/* 点队列里的缩略图 = "我要复现这一张"：把它的 seed 填进输入框。
+   与单张历史（showHist）保持同一套约定 —— 只有点图才回填 seed，
+   服务端掷的随机种子绝不自动写回输入框（留空就一直随机）。 */
+function batchUseSeed(i){
+  const it = bq.queue[i];
+  if (!it || it.seed === undefined || it.seed === null) return;
+  $('seed').value = String(it.seed);
+  log(`已填入队列第 ${i + 1} 张的 seed ${it.seed} —— 同 prompt + 同尺寸再生成即可复现；清空则重新随机`);
 }
 
 function batchCancelPending(){
@@ -1023,8 +1144,10 @@ async function batchStart(){
               bq.fail ? 'var(--bad)' : 'var(--good)');
   log(`批量队列结束：成功 ${bq.ok} 失败 ${bq.fail} 跳过 ${bq.skip}，共 ${total_s}s`,
       bq.fail ? 'err' : 'ok');
-  if ($('seed') && bq.queue.length && bq.queue[bq.queue.length - 1].seed !== undefined){
-    $('seed').value = bq.queue[bq.queue.length - 1].seed;   // 最后一张的种子，方便复现
+  // 队列结束**不回填** seed：留空/负数 = 随机是既定约定，回填会让"下一张"变成复刻。
+  // 每张的 seed 都留在队列列表里，点缩略图才会填进输入框（见 batchUseSeed）。
+  if (bq.lastSeed !== null && bq.lastSeed !== undefined){
+    log(`队列里每张的 seed 都在列表里（最后一张 ${bq.lastSeed}）；想复现就点对应缩略图`);
   }
   saveForm();
 }
@@ -1304,9 +1427,12 @@ async function run(){
     saveForm();                    // 出图成功后连同这次用的参数一起记住
     probe();
   }catch(e){
+    const msg = String(e);
+    // preflight 拒绝时，错误里带着"同比例能跑的最大尺寸" —— 直接给个按钮套用它
+    const fixHTML = fitFixHTML(msg);
     $('stage').innerHTML = '<div class="hint" style="color:var(--bad)">生成失败<br>' +
-                           String(e).slice(0,300) + '</div>';
-    log('失败：' + String(e).slice(0,300), 'err');
+                           msg.slice(0,300) + '</div>' + fixHTML;
+    log('失败：' + msg.slice(0,300), 'err');
   }finally{
     // 这里绝不能再抛异常：一旦抛出，busy 就永远是 true、按钮永远 disabled
     try { if (poller) poller.stop(); } catch(_){}
@@ -1370,6 +1496,7 @@ function showHist(i){
 }
 
 setMode('t2i');
+refreshFitTable();   // 拉一次「各档位能跑多大」，失败也不影响使用
 (async function boot(){
   // 1) 恢复上次的输入内容（不含 key —— key 走 HttpOnly Cookie 会话）
   const restored = loadForm();

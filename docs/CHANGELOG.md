@@ -1,5 +1,133 @@
 # CHANGELOG
 
+## 2026-09-26（深夜 · 第二十五批）· 选比例后自动给出"能跑的尺寸"
+
+### 用户反馈
+"我想手动修改比例就会提示失败太大，这块有办法我选定比例之后智能计算下合适的规格吗？"
+（贴的是 preflight 拒绝：`1696x2528/26 steps 需要约 67.1 GiB，当前只有 16.6 GiB`
+—— 选 2:3 档位直接套了官方 2K 尺寸 4.29MP，编辑模式必炸）
+
+### 改动
+
+1. **新增 `GET /v1/fit`**：按实测标定的显存模型反算"同比例、能跑的尺寸"。
+   `all_ratios=true` 一次给全部 7 个档位 × 两种模式（UI 初始化只需一条请求）。
+2. **档位下拉直接显示结果**：`2:3 · 官方 1696×2528 → 能跑 1120×1664`。
+   编辑模式选中跑不动的档位时，**自动**把宽高换成建议值并解除"跟随参考图"
+   （跟随开着时请求根本不带宽高，不解除的话填了也白填 —— 实现时踩到的）。
+3. **preflight 错误里带上建议尺寸**：507 的 detail 直接写
+   「同比例能跑的最大尺寸：1120x1664（1.86MP，同一比例 0.671）」。
+4. **一键修正**：失败提示下方出现「改成 1120×1664 再试」按钮，点了就套用并解除跟随；
+   批量队列里失败的条目也有个「修」按钮。
+
+### 关键：判据用实测基线，不用公式外推
+
+- **编辑**：实测红线 1.92MP 通过 / 2.17MP OOM → 以上限 1.92MP 为准，
+  显存更紧时按 `mp ∝ √(free/16.5)` 收缩。落点 1.86~1.89MP，在安全区内。
+- **文生图**：先把官方 7 个 2K 档位**全部实测一遍**（`remote/scripts/_t2i_2k_check.py`），
+  结果 **7/7 全过**（4.19~4.30MP，各约 60s @20 步），于是阈值给到 4.35MP 直接放行。
+  一开始我按 2048² 外推成 4.2MP，会把 4:3/16:9 的官方档位误判成"要缩"，实测后才定准。
+- **原尺寸能跑就原样返回**（`resized:false`）：官方档位是模型按它训练的，能跑就别动。
+  （修之前 1:1 会被算成 2080×2080 这种既非官方又没意义的尺寸。）
+
+### 实测
+
+| 项目 | 结果 |
+|---|---|
+| 编辑 7 个档位建议值 | 1.86~1.89MP，全部落在实测安全区 ✅ |
+| 文生图 7 个官方档位 | `fits_as_is=true`，尺寸原样保留 ✅ |
+| 按建议尺寸 1120×1664 跑编辑 | HTTP 200 ✅ |
+| 文生图官方 2K 档位实测 | 7/7 通过（存量能力没被新判断误伤） |
+
+### 文档
+
+`docs/API.md` 补 3.9.2 节。现在"编辑上限 1.92MP"有了可执行入口（`/v1/fit`），
+不再是让用户自己猜一个数。
+
+---
+
+## 2026-09-26（深夜 · 第二十四批）· 人体复检小模型：500M 换成 2.2B（500M 根本答不出结论）
+
+### 用户要求
+
+"有个新增功能是跑完了视觉小模型看一下是否符合人体比例自动重载，你先把小模型给下载好装上"
+—— 装是装上了，然后发现装上也没用；顺藤摸瓜换了一个真能用的。
+
+### 一、500M 装好了，但它答不出可解析的结论
+
+`HuggingFaceTB/SmolVLM-500M-Instruct` 落到实例 HF 缓存（校验：`model.safetensors` 的
+sha256 与官方 LFS oid 逐位相同；补上了缺失的 tokenizer / preprocessor 六个文件）。
+CPU 加载 39s、判一张 13~30s、常驻 3.1G 内存、**显存 0**。然后真跑：
+
+| 图 | 服务原指令下的原始输出 |
+|---|---|
+| 正常全身图 | `'PASS.'` |
+| 另一张正常图 | `'PASS.'` |
+| **一个身体两个头**（照 prompt 生成的真缺陷） | `'PASS.'` |
+
+服务期望 `PASS|置信度|理由`，于是 100% 落进 "unparseable" → fail-open →
+**自动换 seed 重跑从来没触发过**。换问法（一句话/两句/极简）、换首 token 打分，全都不行：
+这个体量只会回一个词。结论：**500M 承担不了这个判断**（用户据此选了换 2.2B）。
+
+### 二、换 `SmolVLM2-2.2B-Instruct`：判定真的出来了
+
+同一条链路（实例上真跑，`anatomy_check=true`，768×1024/10 步）：
+
+| | 500M | 2.2B |
+|---|---|---|
+| 原始输出 | `'PASS.'` | `'PASS\|0.9999999999999999\|The image is a full body photo of one woman standing with natural proportions. Both legs are visible.'` |
+| 解析结果 | `label=uncertain` / `fail_open=true` / `"checker returned an unparseable verdict"` | `label=pass` / `fail_open=false` / 理由具体到"两条腿都可见" |
+| 单张耗时（CPU） | 13~30s | 16~40s（bf16 中位 ~26s） |
+| 显存 | 0 | 0（CPU 上跑） |
+
+### 三、但它仍然偏保守（如实记录，别高估这道闸门）
+
+造了一张"**一个身体两个头**"的对照图（prompt 直接要求两个头，肉眼可见）：
+
+| 问法 | 2.2B | 500M |
+|---|---|---|
+| 数几个头 | **`2`** ✅ | `2.` ✅ |
+| 自由描述 | **`A person with two faces stands against a plain background.`** ✅ | `A woman is wearing grey overalls…` ❌ 漏了 |
+| 去掉"不确定就 PASS"兜底的强硬 PASS/FAIL | `PASS` ❌ | `PASS.` ❌ |
+
+**它看得见，但一问 PASS/FAIL 就答 PASS。** 所以这道闸门是"能挡就挡"，不是"必定拦下"。
+要更准，下一步要么换更大的 VLM，要么改成可核对的问法（"数几个头/几条腿" vs "几个人"，
+由代码算差值再判）。这段如实写进了 `docs/API.md` 与 `service/anatomy_check.py` 的模块注释。
+
+### 四、装它的路上踩到的三件事
+
+1. **HF 下不动**：同一分片实测 HF 直连（学术加速）**0.21 MB/s**、hf-mirror 1.9 MB/s、
+   **ModelScope 9.5 MB/s**。8.6 GB 权重（fp32 两分片）走 ModelScope 15 分钟下完，
+   走 HF 一个多小时还中途卡死（`.incomplete` 停住不动）。新增
+   `service/scripts/download_anatomy_model.sh`：ModelScope 下载 + 对着官方清单逐个比大小。
+2. **少了依赖**：SmolVLM2 的 processor 需要 `num2words`（500M 那版不需要），报错
+   `ImportError: Package num2words is required to run SmolVLM processor`。已写进 `bootstrap.sh`。
+3. **精度**：本机 Xeon 8470Q（`avx512_bf16` + `amx_bf16`），CPU 上 bf16 比 fp32
+   **快约 1.8 倍**（同图 38.4s → 20.3s）。新增 `QWEN_ANATOMY_DTYPE=auto`：
+   GPU→float16、CPU→bfloat16；老 CPU 显式设 `float32`。
+
+### 五、落地状态
+
+- `anatomy_check.py` 默认模型 = `HuggingFaceTB/SmolVLM2-2.2B-Instruct`；`/health` 里
+  `anatomy_checker` 增加 `dtype` 与 `max_edge` 字段（未加载时也会报出将要用的精度）；
+- 实例 `qwen_env.sh` **追加**了 `QWEN_ANATOMY_MODEL=/root/autodl-tmp/models/SmolVLM2-2.2B-Instruct`
+  等四行（只追加，真 key 一个字节没动，改前留了 `qwen_env.sh.bak.*`）；那份文件此前是旧版，
+  连复检配置段都没有 —— 所以不给绝对路径的话，服务会去 HF 拉 8.6 GB；
+- `download_anatomy_model.sh` 与 `bootstrap.sh` 已随 `deploy_service.py` 上链；
+- 端到端：`anatomy_check=true` → HTTP 200，4.1s 出图 + 26.4s 复检，
+  `label=pass / fail_open=false / reason=…natural proportions, both legs visible`。
+- 验证脚本：`remote/scripts/_test_anatomy_2b.sh`（文件核对 + 行为 + 耗时）、
+  `_diag_2b_vs_500m.sh`（对照诊断）、`_fix_instance_env_and_e2e.sh`（改 env + 重启 + 端到端）。
+
+### 六、顺带（与第二十三批的批量队列对齐）
+
+批量队列结束时**不再**把最后一张的 seed 填回输入框 —— 那和第十一批定的约定冲突
+（留空/负数 = 随机；只有"点某张图想看复现"时才回填）。现在改成：队列列表里每张的
+缩略图可点，点了才把该张的 seed 填进输入框（`batchUseSeed()`），结束只写一行日志。
+`tools/webui_logic_check.py` 的检查也从"只允许 2 处写 seed 输入框"改成按入口分类：
+清空 / `copyPrompt` / `showHist` / `batchUseSeed` 之外任何写 seed 的代码都算 FAIL。
+
+---
+
 ## 2026-09-26（深夜 · 第二十三批）· 批量队列（一行一个 prompt，两级停止）
 
 ### 用户要求

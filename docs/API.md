@@ -253,6 +253,13 @@ curl -s -X POST "http://127.0.0.1:6006/v1/images/generations" \
 仍返回最后一张图，同时设置 `exhausted=true`，不会无限重跑。检测器不可用、输出不可解析或置信度不足时
 采用 fail-open（放行并在 `history.verdicts` 中说明），避免因为复检故障丢掉已经生成的图片。
 
+> 实例上的一次真实响应（768×1024 / 10 步，模型是本地 2.2B、CPU bf16）：
+> 生成 4.1s，复检 26.4s，`"label":"pass"`、`"confidence":0.9999…`、
+> `"reason":"The image is a full body photo of one woman standing with natural
+> proportions, both legs visible"`、`"fail_open":false`。
+> **复检是串在请求里的**：开了 `anatomy_check` 就要等这 20~40 秒 CPU 判图
+> （模型只在第一次启用时加载，约 7 秒）。
+
 > **关于 `seed`（以前这里有个坑）**：不传 `seed` 时，服务端会自己掷一个真随机种子，
 > 用它建 `torch.Generator` 再去噪，然后**如实返回**这个值。
 > 所以「每次都不一样」和「拿到种子就能复现」同时成立：
@@ -466,6 +473,39 @@ curl -s -X POST "$BASE/v1/progress/$RID/cancel" -H "Authorization: Bearer $KEY"
 > **「只停队列」不需要调任何接口**：队列在客户端跑，不发下一个请求就是停队列。
 > 服务端只负责"连当前这个也停"，也就是上面这条。
 
+### 3.9.2 `GET /v1/fit` — 这个比例/尺寸在当前显存下最大能跑多少
+
+选比例后不该撞 OOM 才知道。这条端点按**实测标定**的显存模型反算出"同比例、能跑的尺寸"，
+UI 用它把官方 2K 档位显示成「官方 1696×2528 → 能跑 1120×1664」。
+
+```bash
+# 一次拿全部 7 个官方档位（两种模式都给）—— UI 初始化用的就是这一条
+curl -s "$BASE/v1/fit?all_ratios=true&steps=30" -H "Authorization: Bearer $KEY"
+
+# 只算一个比例
+curl -s "$BASE/v1/fit?ratio=2:3&mode=edit&steps=30" -H "Authorization: Bearer $KEY"
+# {"ratio":0.6667,"max_mp":1.92,"width":1120,"height":1664,"fit_mp":1.86,
+#  "resized":true,"budget_gib":12.8,"estimate_gib":10.13,"fits_as_is":false,
+#  "requested":{"width":1696,"height":2528,"mp":4.29}}
+```
+
+判据不是纯公式外推，而是**实测基线**：
+
+| 模式 | 依据 |
+|---|---|
+| 编辑 | 实测红线 1.92MP 通过 / 2.17MP OOM → 以 1.92MP 为上限，显存更紧时按二次曲线收缩 |
+| 文生图 | 官方 7 个 2K 档位**全部实测能跑**（4.19~4.30MP，约 60s @20 步）→ 直接放行 |
+
+原尺寸本来就跑得动时**原样返回**（`resized:false`）—— 官方 2K 档位是模型按它训练的，
+能跑就别改。跑不动才等比缩，且宽高都取 32 的倍数。
+
+`preflight` 被拒绝时的 507 错误里也会带上这个建议尺寸，可以直接照抄重试：
+
+```
+preflight：1696x2528（4.29MP）/26 步需要约 67.1 GiB 额外显存，当前只有 16.6 GiB 可用。
+同比例能跑的最大尺寸：1120x1664（1.86MP，同一比例 0.671）。想更大只能开 QWEN_OFFLOAD=model。
+```
+
 ### 3.10 会话（Cookie 登录，控制台用）
 
 | 方法 | 路径 | 说明 |
@@ -554,9 +594,22 @@ curl -sf -m 5 "$BASE/health" | jq -e '.status == "ok" and .checkpoint.present ==
 | `QWEN_SESSION_HOURS` | `24` | 会话 Cookie 有效期（小时） |
 | `QWEN_COOKIE_SECURE` | `1` | Cookie 是否带 `Secure`（公网是 https 保持 1；纯 http 调试设 0） |
 | `QWEN_MAX_QUEUE` | `64` | 异步队列上限 |
-| `QWEN_ANATOMY_MODEL` | `HuggingFaceTB/SmolVLM-500M-Instruct` | 可选人体复检模型；仅首次启用时按需加载 |
+| `QWEN_ANATOMY_MODEL` | `HuggingFaceTB/SmolVLM2-2.2B-Instruct` | 可选人体复检模型；仅首次启用时按需加载。**可以给本地绝对路径**（实例上是 `/root/autodl-tmp/models/SmolVLM2-2.2B-Instruct`），免掉首次联网下载 |
 | `QWEN_ANATOMY_DEVICE` | `cpu` | 复检模型运行设备；默认 CPU，不占主模型显存 |
+| `QWEN_ANATOMY_DTYPE` | `auto` | `auto` = GPU→float16 / CPU→bfloat16；老 CPU（无 avx512_bf16）请显式设 `float32` |
 | `QWEN_ANATOMY_MIN_CONFIDENCE` | `0.78` | FAIL 达到该置信度才触发重跑，低于阈值按不确定放行 |
+| `QWEN_ANATOMY_MAX_EDGE` | `768` | 判图前把图缩到最长边为该值（越大越慢，用分辨率换细节） |
+
+> **复检模型的现状（都是实测，别被"智能检测"四个字骗了）**：
+> `SmolVLM-500M-Instruct` 那版**根本答不出格式** —— 不看图好坏只回一句 `PASS.`，
+> 解析必然落进 fail-open，自动换 seed 重跑从来没真正触发过。换成
+> `SmolVLM2-2.2B-Instruct` 后会老实输出 `PASS|0.99|The image is a full body photo of
+> one woman …`，这条判定才算可用（实例上实测：生成 4.1s + 复检 26.4s）。
+> 但它**偏保守**：拿一张"一个身体两个头"的对照图实测，它能描述出
+> "A person with two faces"、被问"几个头"也答 2，可一问 PASS/FAIL 还是回 `PASS`。
+> 所以这道闸门是"能挡就挡"，不是"必定拦下" —— 这也正是 fail-open + 高置信度阈值
+> 的设计前提。依赖上多一个 `num2words`（SmolVLM2 的 processor 要它，
+> `bootstrap.sh` 里已带上）。权重下载走 `scripts/download_anatomy_model.sh`。
 
 ---
 

@@ -28,6 +28,7 @@ import hashlib
 import inspect
 import io
 import json
+import math
 import os
 import random
 import re
@@ -86,7 +87,12 @@ MAX_QUEUE = int(os.environ.get("QWEN_MAX_QUEUE", "64"))
 OUT_DIR = os.environ.get("QWEN_OUT_DIR", os.path.join(os.path.dirname(MODEL_DIR.rstrip("/")), "outputs"))
 MODEL_VERSION = "Qwen-Image-2.1"
 # 48G 单卡（魔改 4090）全 BF16 常驻经验值：权重 32.4 GiB + 每张 2048² latent 约 8 GiB + 余量
-SAFETY_GIB = float(os.environ.get("QWEN_SAFETY_GIB", "2.0"))
+# 这个值只用于"建议尺寸"的预算计算；preflight 用的是 free 本身，所以调大它不会误拦。
+SAFETY_GIB = float(os.environ.get("QWEN_SAFETY_GIB", "4.0"))
+# 建议尺寸的保守系数：算出来的"最大 MP"再乘它。
+# 原因是实测边界就在 1.92MP 通过 / 2.17MP 失败，而公式在 free≈16.5G 时算出 1.99MP ——
+# 拿它当建议等于让人贴着 OOM 红线跑。建议要给"舒服能跑"的，不是擦边的。
+FIT_COMFORT = float(os.environ.get("QWEN_FIT_COMFORT", "0.92"))
 PRELOAD = os.environ.get("QWEN_PRELOAD", "1") == "1"
 LATENT_GIB_2K = float(os.environ.get("QWEN_LATENT_GIB_2K", "8.0"))
 # 二次项系数（G/MP²）：分模式校准，见 estimate_transient_gib 的说明
@@ -500,6 +506,98 @@ def _require_gpu():
         raise HTTPException(409, "no GPU attached: this instance is in 无卡模式, power it on with a GPU first")
 
 
+def transient_budget_gib(mode: str = "t2i") -> float:
+    """当前真正能用的"临时量"预算。
+
+    可用显存里先扣掉安全余量：PyTorch 的 reserved 块与碎片不会全还给驱动，
+    实测 47.4G 的卡在权重常驻后 free 会在 16.5G 左右浮动，扣掉 SAFETY_GIB 才是稳的。
+    """
+    if not torch.cuda.is_available():
+        return 0.0
+    free_gib = torch.cuda.mem_get_info()[0] / 1024 ** 3
+    return max(0.0, free_gib - SAFETY_GIB)
+
+
+# 实测出来的编辑红线（48G 卡、权重常驻、tile_vae=1）：
+#   1200×1600 = 1.92MP 通过；1280×1696 = 2.17MP OOM
+# 基准可用显存：权重常驻后 free 的稳定值，实测在 16.5G 附近。
+EDIT_MAX_MP_MEASURED = float(os.environ.get("QWEN_EDIT_MAX_MP", "1.92"))
+EDIT_BASELINE_FREE_GIB = float(os.environ.get("QWEN_EDIT_BASELINE_FREE", "16.5"))
+# 编辑曲线的二次项系数，用实测两点反推：
+#   1.024MP → ~14.5G，1.92MP → ~16.5G，于是 3.65·mp²+c 定出 c≈0.7、系数≈4.2
+# 只用于"建议尺寸"，不参与 preflight（改 preflight 的系数会误拦现在能跑的东西）。
+QUAD_FIT = float(os.environ.get("QWEN_QUAD_FIT", "4.2"))
+# 文生图实测：7 个官方 2K 档位的**全部**都能跑（4.19~4.30MP，各约 60s @20 步）。
+# 见 remote/scripts/_t2i_2k_check.py。公式的二次项是按编辑标定的，拿它判文生图会把
+# 2048² 误判成跑不动，所以给文生图这个实测阈值（留一点余量到 4.35）。
+T2I_KNOWN_GOOD_MP = float(os.environ.get("QWEN_T2I_KNOWN_GOOD_MP", "4.35"))
+
+
+def max_mp_for_budget(budget_gib: float, steps: int = 40, mode: str = "edit") -> float:
+    """当前可用显存下，建议的**最大 MP**。
+
+    编辑：有实测红线就以它为准（1.92MP），只在显存比基线更紧时按二次曲线收缩。
+    文生图：曲线平得多，实测 4.19MP 能跑，所以阈值直接给到 4.2MP；
+           显存特别紧时才按免费显存比例收缩。
+    """
+    free = budget_gib + SAFETY_GIB                      # 还原成"当时 free 多少"
+    if mode != "edit":
+        if free >= EDIT_BASELINE_FREE_GIB:
+            return T2I_KNOWN_GOOD_MP
+        return max(0.0, T2I_KNOWN_GOOD_MP * (free / EDIT_BASELINE_FREE_GIB))
+    if free >= EDIT_BASELINE_FREE_GIB:
+        mp = EDIT_MAX_MP_MEASURED
+    else:
+        mp = EDIT_MAX_MP_MEASURED * math.sqrt(max(0.0, free) / EDIT_BASELINE_FREE_GIB)
+    step_gib = 0.6 * max(0, steps - 25) / 25.0
+    if step_gib:                                         # 步数特别多时再让一点
+        mp *= max(0.85, 1.0 - step_gib / 20.0)
+    return max(0.0, mp)
+
+
+def size_for_ratio(ratio: float, budget_mp: float, multiple: int = 32) -> tuple:
+    """在**给定像素预算**内，保持比例的最大尺寸（宽高都是 multiple 的整数倍）。
+
+    与官方 calculate_dimensions 同一套算法（先算宽、高用未取整的宽反算），
+    只是把"预算"从固定的 output_resolution² 换成"显存允许的像素数"。
+    """
+    if ratio <= 0 or budget_mp <= 0:
+        return 0, 0
+    area = budget_mp * 1e6
+    raw_w = math.sqrt(area * ratio)
+    raw_h = raw_w / ratio
+    w = max(multiple, int(raw_w / multiple) * multiple)      # 往下取整，保证不超预算
+    h = max(multiple, int(raw_h / multiple) * multiple)
+    return w, h
+
+
+def suggest_size(width: int, height: int, mode: str = "t2i", steps: int = 40) -> Dict[str, Any]:
+    """给一个尺寸，返回"能跑的同比例尺寸"。
+
+    **原尺寸本来就跑得动时原样返回** —— 官方 2K 档位是模型按它训练的，
+    能跑就别动它（否则 1:1 会被算成 2080×2080 这种既非官方又没意义的尺寸）。
+    只有跑不动才按预算等比缩。
+    """
+    ratio = (width / height) if height else 1.0
+    budget = transient_budget_gib(mode)
+    mp_fit = max_mp_for_budget(budget, steps, mode)
+    if width * height / 1e6 <= mp_fit:
+        w, h = width, height
+    else:
+        w, h = size_for_ratio(ratio, mp_fit)
+    return {
+        "ratio": round(ratio, 4),
+        "max_mp": round(mp_fit, 2),
+        "width": w, "height": h,
+        "fit_mp": round(w * h / 1e6, 2),
+        "resized": (w, h) != (width, height),
+        "free_gib": round(torch.cuda.mem_get_info()[0] / 1024 ** 3, 1)
+                    if torch.cuda.is_available() else None,
+        "mode": mode,
+        "steps": steps,
+    }
+
+
 def estimate_transient_gib(width: int, height: int, steps: int, mode: str = "t2i") -> float:
     """本次运行需要的**额外**显存（不含已常驻的权重）。
 
@@ -535,11 +633,14 @@ def preflight_vram(width: int, height: int, steps: int, mode: str = "t2i"):
     need = estimate_transient_gib(width, height, steps, mode)
     free_gib = torch.cuda.mem_get_info()[0] / 1024 ** 3
     if need > free_gib:
-        hint = ("编辑建议 ≤ 1.92MP（如 1200×1600）；要更高只能开 QWEN_OFFLOAD=model"
-                if mode == "edit" else "文生图建议 ≤ 2048²（8.4MP）")
+        s = suggest_size(width, height, mode, steps)
+        # 错误信息里直接给"同比例、塞得下"的尺寸，用户不用自己猜（原来只说 ≤1.92MP）
         raise HTTPException(507, (
-            f"preflight: {width}x{height}/{steps} steps 需要约 {need:.1f} GiB 额外显存，"
-            f"当前只有 {free_gib:.1f} GiB 可用。{hint}。"
+            f"preflight：{width}x{height}（{width * height / 1e6:.2f}MP）/{steps} 步"
+            f"需要约 {need:.1f} GiB 额外显存，当前只有 {free_gib:.1f} GiB 可用。\n"
+            f"同比例能跑的最大尺寸：{s['width']}x{s['height']}"
+            f"（{s['fit_mp']}MP，同一比例 {s['ratio']}）。"
+            f"{'想更大只能开 QWEN_OFFLOAD=model。' if mode == 'edit' else ''}"
             f"（临时量估算已按实测校准：编辑 1.92MP 通过 / 2.17MP 失败）"
         ))
 
@@ -1503,6 +1604,57 @@ async def list_jobs(request: Request, limit: int = 20):
 # --------------------------------------------------------------------------- #
 # 进度查询：前端在生成期间轮询它，拿到真实步数 / 每步耗时 / ETA
 # --------------------------------------------------------------------------- #
+@app.get("/v1/fit", dependencies=[Depends(require_key)])
+async def fit_endpoint(width: int = 0, height: int = 0, ratio: str = "",
+                       steps: int = 40, mode: str = "", all_ratios: bool = False,
+                       all_modes: bool = True):
+    """这个比例/尺寸在当前显存下最大能跑到多少？
+
+    UI 用它把「官方 2K 档位」按实际预算缩成"能跑的同比例尺寸"，
+    用户选 2:3 就自动得到 1120×1664 这种，而不是 1696×2528 然后被拦。
+
+    两种用法：
+      · `all_ratios=true` —— 一次把 7 个官方档位在两种模式下的结果都算出来
+        （UI 初始化用这一次请求就够，不必每次切模式再打 7 次）
+      · 给 `width`/`height` 或 `ratio` —— 只算这一个
+
+    `mode` 空 = 按有没有参考图自动判（edit/t2i），`steps` 用来算步数附加项。
+    """
+    def one(w: int, h: int, m: str, st: int) -> Dict[str, Any]:
+        s = suggest_size(w, h, m, st)
+        s["requested"] = {"width": w, "height": h, "mp": round(w * h / 1e6, 2)}
+        s["budget_gib"] = round(transient_budget_gib(m), 2)
+        s["estimate_gib"] = estimate_transient_gib(s["width"], s["height"], st, m)
+        # "原尺寸能不能跑"要用与建议同一套判据，否则会出现"显示已缩比、实际不用缩"
+        # （实测踩到：文生图 2048² 明明是能跑的，公式却按编辑曲线把它判成跑不动）
+        s["fits_as_is"] = (w * h / 1e6) <= max_mp_for_budget(transient_budget_gib(m), st, m)
+        return s
+
+    if all_ratios:
+        modes = ["edit", "t2i"] if all_modes else [mode if mode in ("edit", "t2i") else "edit"]
+        out: Dict[str, Any] = {"steps": steps, "ratios": {}}
+        for name, (w, h) in ASPECT_RATIOS.items():
+            out["ratios"][name] = {m: one(w, h, m, steps) for m in modes}
+        out["gpu"] = {"total_gib": round(torch.cuda.get_device_properties(0).total_memory / 1024 ** 3, 1)
+                      if torch.cuda.is_available() else None,
+                      "free_gib": round(torch.cuda.mem_get_info()[0] / 1024 ** 3, 1)
+                      if torch.cuda.is_available() else None}
+        return out
+
+    if ratio and ratio in ASPECT_RATIOS:
+        width, height = ASPECT_RATIOS[ratio]
+    elif ratio and ":" in ratio:
+        try:
+            a, b = ratio.split(":", 1)
+            width, height = int(a) * 100, int(b) * 100
+        except Exception:                                              # noqa: BLE001
+            raise HTTPException(400, "ratio 形如 '2:3'，或直接给 width/height")
+    if not width or not height:
+        raise HTTPException(400, "需要 width/height，或 ratio")
+    m = mode if mode in ("edit", "t2i") else "edit"
+    return one(width, height, m, steps)
+
+
 @app.get("/v1/progress", dependencies=[Depends(require_key)])
 async def progress_list():
     """当前/最近几次任务的进度（按开始时间倒序）。"""
