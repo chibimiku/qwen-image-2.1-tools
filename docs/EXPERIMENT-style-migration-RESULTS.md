@@ -307,6 +307,11 @@ python exec\make_report.py                                    # REPORT.md
 | 每张的精确请求体、响应元数据、出图 | `jobs/<id>/`、`outputs/` |
 | 部署与参数快照、续跑日志 | `runs/run-*/` |
 | anime 探针（总览/画廊/评分） | `exec/anime/SUMMARY.md`、`gallery.html`、`scores.csv` |
-| 整包 zip（2618 文件，1.5 GiB） | `dist/style-reference-migration-20260927.zip` |
+| 归档快照（打包那一刻的完整副本） | `dist/style-reference-migration-20260927/` |
 
-产物清单与 sha256 见实验包的 `MANIFEST-FILES.csv`。
+产物清单与 sha256 见实验包的 `MANIFEST-FILES.csv`（2618 行，覆盖 5237 个文件中的归档部分）。
+
+> 原 `dist/*.zip` 已解压到 `dist/style-reference-migration-20260927/` 并删除，两者的
+> 文件数与逐文件 md5 已核对一致（2618/2618）。`dist/` 里那份是**打包时刻的快照**，
+> 权威版本是实验包根下的活的目录；两者目前一致，但快照不会随之后的改动更新。
+

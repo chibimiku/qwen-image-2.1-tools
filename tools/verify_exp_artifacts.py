@@ -84,11 +84,17 @@ def main() -> int:
     if scores.exists():
         lines = scores.read_text(encoding="utf-8-sig").splitlines()
         print(f"   scores.csv     数据行={max(0, len(lines) - 1)}")
-    print(f"   zip            存在={(PKG / 'dist' / 'style-reference-migration-20260927.zip').exists()}")
+    snap = PKG / "dist" / PKG.name
+    zips = list((PKG / "dist").glob("*.zip")) if (PKG / "dist").exists() else []
+    print(f"   dist/zip       存在={bool(zips)}"
+          + (f"  {zips[0].stat().st_size / 1048576:.0f} MiB" if zips else ""))
+    print(f"   dist/解包快照  存在={snap.exists()}"
+          + (f"  {sum(1 for _ in snap.rglob('*') if _.is_file())} 个文件" if snap.exists() else ""))
 
     print("\n[是否已被 git 跟踪]")
     print(f"   这 {len(uniq)} 个结论文件都不在提交里 —— exp/ 是 .gitignore 第 29 行的整目录排除。")
-    print("   换言之：报告与结论目前**只有本地这一份**，没有版本历史、没有远端副本。")
+    print("   结论本身已整理进 docs/EXPERIMENT-style-migration-RESULTS.md（那份在版本控制里）；")
+    print("   逐图评分与出图只在本地，请自行备份。")
     return 0
 
 

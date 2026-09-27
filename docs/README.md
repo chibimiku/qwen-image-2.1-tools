@@ -237,8 +237,8 @@ python tools/autodl_ssh.py fwd <本地脚本.py>       # 起转发并跑脚本�
 
 完整结果、逐画风最佳方案、泄露率、跨 seed 稳定性、已验证 vs 推断、最小移植方案见
 [`EXPERIMENT-style-migration-RESULTS.md`](EXPERIMENT-style-migration-RESULTS.md)。
-原始产物（出图、逐任务请求、评分表、画廊、对照图、1.5 GiB zip）在实验包内，
-**不纳入版本控制**，索引见该文第 13 节。
+原始产物（出图、逐任务请求、评分表、画廊、对照图）在实验包内，
+**不纳入版本控制**，索引见该文第 13 节；归档快照在实验包的 `dist/` 下。
 
 ---
 
