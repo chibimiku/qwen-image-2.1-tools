@@ -223,11 +223,11 @@ curl -H "Cookie: $COOKIE" https://<入口>/v1/models
 | `anatomy_check` | bool | false | 启用轻量人体结构复检；高置信度异常会自动换随机 seed 重跑 |
 | `anatomy_max_retries` | int | 2 | 人体复检失败后的最多重跑次数，范围 0~5 |
 | `output_format` | string | `png` | `png` / `jpeg` / `webp` |
-| `guidance_scale` | float | — | **别名**，服务端映射到真实的 `true_cfg_scale`（管线并没有叫 guidance_scale 的参数） |
-| `true_cfg_scale` | float | 1.0 | 管线真实参数名。`>1` 且同时给了 `negative_prompt` 才启用 CFG；官方默认 1.0 = 不用引导 |
+| `guidance_scale` | float | — | **别名**，服务端映射到真实的 `true_cfg_scale`（管线并没有叫 guidance_scale 的参数）。**实测不建议使用**，见下方说明 |
+| `true_cfg_scale` | float | 1.0 | 管线真实参数名。`>1` 且同时给了 `negative_prompt` 才启用 CFG；官方默认 1.0 = 不用引导。启用后耗时翻倍 |
 | `num_images_per_prompt` | int | 1 | 一次出几张（服务端限 1~8）。每张种子依次 +1，各自可复现、各自落盘 |
 | `sigmas` | string | — | 自定义采样调度，逗号分隔（如 `"0.9,0.6,0.3,0"`）。必须单调递减、0~1、≥2 个点，否则**静默忽略**（退回默认调度） |
-| `negative_prompt` | string | — | 可选；JSON 与 multipart 两种请求体都支持。**只在 `true_cfg_scale > 1` 时生效** |
+| `negative_prompt` | string | — | 可选；JSON 与 multipart 两种请求体都支持。**只在 `true_cfg_scale > 1` 时生效**。实测会让画面偏线稿、降饱和，不建议使用 |
 
 > **`negative_prompt` + `true_cfg_scale` 是一对**：管线源码 L668-674 规定，`true_cfg_scale <= 1`
 > 时给了负面词只会打一条 warning，**不生效**。所以要么两个一起用，要么都不给
@@ -236,8 +236,22 @@ curl -H "Cookie: $COOKIE" https://<入口>/v1/models
 
 这两个参数属于 Diffusers 管线能力，不是 Qwen 官方 README / HF 模型卡的推荐调参路径。
 官方示例与推荐默认值是 40 步、`true_cfg_scale=1`（无 guidance），官方博客也没有给负面词表。
-WebUI 因此把它们放在默认折叠的“高级实验设置”中。是否值得用于人体异常，应按
-[`CFG-NEGATIVE-AB-TEST.md`](CFG-NEGATIVE-AB-TEST.md) 做多 seed 配对盲测后判断。
+WebUI 因此把它们放在默认折叠的“高级实验设置”中。
+
+> **实测结论：本项目不建议使用这两个参数**（144 张配对实验，2026-09-27）。
+> 完整数据见 [`CFG-NEGATIVE-AB-RESULTS.md`](CFG-NEGATIVE-AB-RESULTS.md)，要点：
+>
+> - **耗时翻倍**：1024²/20 步，不开 CFG 11.5s（文生图）/ 13.8s（编辑），
+>   开了 22.2s / 26.5s。且开销与 `true_cfg_scale` 是 2.0 还是 2.5 **无关**。
+> - **画面明显退化**：负面词 + CFG 组输出整体偏向线稿/淡彩，大面积留白、颜色发灰发淡，
+>   完成度肉眼可见地低于官方默认（无负面词、CFG=1）。
+> - **收益没能验证**：唯一可用的自动判据（2.2B 审图模型）对插画风格结构性一律 PASS，
+>   测不出"多一条腿"这一档；人眼 1:1 复核后，原本怀疑的"多腿"大部分是把垂在身侧的手臂
+>   误判成了腿。
+>
+> 需要改善人体结构时，优先走 **prompt 工程**（[`PROMPT-ANATOMY.md`](PROMPT-ANATOMY.md)）——
+> 实测按官方 PE 方法改写 prompt 的耗时与不改**完全相同**（零额外成本），
+> 而 CFG 是双倍成本换一个没验证出来的收益。
 
 ```bash
 curl -s -X POST "http://127.0.0.1:6006/v1/images/generations" \

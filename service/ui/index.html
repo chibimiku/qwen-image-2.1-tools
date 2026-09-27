@@ -235,7 +235,10 @@
             官方示例用的是 <code>--guidance-scale 1</code>，所以官方路线是"不用引导"。<br>
             <b>结论</b>：用负面词要主动把 CFG 调到 &gt;1（机制上必须），这属于<b>偏离官方默认</b>的用法，
             代价是耗时约 ×2。<br>
-            <b>下面两个按钮里的词是我们自己写的经验值，不是官方推荐</b>——只当起点，按结果自己改。
+            <b>下面两个按钮里的词是我们自己写的经验值，不是官方推荐</b>——只当起点，按结果自己改。<br>
+            <b>实测结论（144 张配对实验）：不建议用</b>。开了之后耗时翻倍，画面还会明显偏线稿、降饱和，
+            完成度肉眼可见地低于官方默认；而"减少多余肢体"这个收益<b>没能验证出来</b> ——
+            详见下方 CFG 的说明。
             <span class="tip-ft">详见 docs/PROMPT-ANATOMY.md 第三节</span>
           </span></span>
         </label>
@@ -258,9 +261,13 @@
                 <b>优点</b>：&gt;1 且填了负面提示词时，负面词才开始起作用（管这条）。<br>
                 <b>代价</b>：① 每一步要多跑一次前向，<b>耗时约 ×2</b>；② 官方说这是按无引导设计的，
                 开大了画面可能变僵、色彩变闷。<br>
-                <b>建议</b>：平时留 1；只在负面词必须发挥作用（比如反复出多余肢体）时用 <b>2~2.5</b>，
-                并且对比着看，不合适就退回 1。<br>
-                <span class="tip-ft">接口里 guidance_scale 是它的别名，服务端会映射</span>
+                <b>实测结论（2026-09-27，144 张配对实验）：本项目不建议开。</b>
+                1024²/20 步实测 11.5s → 22.2s（文生图）、13.8s → 26.5s（编辑），
+                且开销与取 2.0 还是 2.5 <b>无关</b>；同时画面整体偏线稿化、降饱和，
+                而"减少多余肢体"的收益没能验证出来。<br>
+                <b>要改善人体结构，请优先改 prompt</b>（按官方 PE 方法改写），
+                实测耗时与不改<b>完全相同</b>，是零成本的路子。<br>
+                <span class="tip-ft"><span class="tip-ft">详见 docs/CFG-NEGATIVE-AB-RESULTS.md（144 张配对实验的完整结果）</span> · 接口里 guidance_scale 是它的别名，服务端会映射</span>
               </span></span>
             </label>
             <input type="number" id="cfgscale" value="1" min="1" max="10" step="0.1">
@@ -796,7 +803,8 @@ function fillAnatomyNeg(){
   if (c && parseFloat(c.value || '1') <= 1) c.value = '2.5';
   syncCfgNote(); saveForm();
   log('已填入人体负面词（我们自己写的经验值，非官方推荐），并把 CFG 设为 2.5 —— '
-      + '官方默认是 CFG=1 不用引导，改成 >1 属于偏离官方默认，耗时约 ×2', 'ok');
+      + '官方默认是 CFG=1 不用引导，改成 >1 属于偏离官方默认，耗时约 ×2；'
+      + '实测这个组合会降低画面完成度且未验证出收益，优先考虑改 prompt', 'ok');
 }
 function fillQualityNeg(){
   const el = $('negative');
@@ -828,8 +836,10 @@ function syncCfgNote(){
     note.innerHTML = '<span style="color:var(--warn)">⚠ CFG=' + cfg +
       ' 但没填负面提示词 —— 管线不会启用引导，这个数值会被忽略。填上负面词或把 CFG 调回 1。</span>';
   } else if (cfg > 1){
-    note.innerHTML = '<span style="color:var(--good)">CFG=' + cfg +
-      ' + 负面词：引导生效，耗时约 ×2。</span>';
+    note.innerHTML = '<span style="color:var(--warn)">CFG=' + cfg +
+      ' + 负面词：引导生效，耗时约 ×2。</span>' +
+      '<span style="color:var(--dim)"> 实测（144 张配对）这个组合会让画面偏线稿、降饱和，' +
+      '且没验证出减少多余肢体的收益 —— 优先改 prompt。</span>';
   } else {
     note.textContent = 'CFG=1：不开引导（官方默认，速度最快）。';
   }

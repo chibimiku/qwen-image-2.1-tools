@@ -203,6 +203,30 @@ python tools/autodl_ssh.py fwd <本地脚本.py>       # 起转发并跑脚本�
 | `qwen_report.py` | 跑表情专项 + 出综合 HTML 报告（含浏览器内手动对齐工具） |
 | `qwen_nsfw_test.py` | 姿势阶梯测试（露出度递增，用于定位模型的失效边界） |
 
+### CFG / 负面提示词配对实验（`remote/scripts/`，2026-09-27）
+
+一次专门用来判"负面提示词 + CFG 值不值得用"的实验。**结论是不值得**，
+完整分析与产物见 [`CFG-NEGATIVE-AB-RESULTS.md`](CFG-NEGATIVE-AB-RESULTS.md)。
+
+| 脚本 | 作用 |
+|---|---|
+| `_cfg_ab_generate.py` | 出图：3 类任务 × 4 变体 × 12 seed = 144 张，写 `manifest.jsonl` + `blind.jsonl`。可只跑一类（`... t2i`），manifest 追加不覆盖 |
+| `_cfg_ab_score.py` | 自动标签（2.2B 审图）+ 盲评表 + `REPORT.md`。**必须设 `HF_HUB_OFFLINE=1`**，否则全灭 |
+| `_ab_zoom_sheets.py` | 生成能真的数腿的放大表（腰以下，12 seed × 4 变体同屏） |
+| `_ab_crop_cells.py` | 1:1 原分辨率并排对照 —— **最终判据**，缩略图会把手臂看成腿 |
+| `_ab_make_small_sheets.py` | 盲评表转紧凑 JPEG（3.2MB → 0.4MB），便于跨机传看 |
+| `_ab_status.py` / `_ab_summarize.py` | 实验进度与异常率汇总（含"下降 ≥30%"门槛判断） |
+| `_ab_recheck_labels.py` | 复核自动标签到底有没有在判 —— 分辨"工具坏了"和"真的没问题" |
+| `_anatomy_sanity.py` | 审图模型自检：用故意画成三条腿的图验证它不是永远 PASS |
+| `_anatomy_diag.py` | 审图模型加载失败的完整异常与本地目录检查 |
+| `_verify_t2i_json.py` | 端到端验证：JSON 字符串/数字/multipart 三条路径给出同一尺寸 |
+| `_restart_service.sh` | 重启服务并等 `/health` 就绪（`pkill` 会打断 ssh 会话，所以要独立脚本） |
+
+> `_anatomy_sanity.py` 的教训值得单独记：`inspect_image()` 是 **fail-open** 的
+> （加载失败返回 `passed=True`），于是那批评分表显示"144 张 0% 异常、置信度 0.00"，
+> 实际 144 条 `label` 全是 `unavailable`。**fail-open 的工具必须自带"我还活着吗"的探针，
+> 判据是 `label` 而不是 `passed`。**
+
 ---
 
 ## 四、目录约定

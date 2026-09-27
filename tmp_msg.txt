@@ -1,0 +1,46 @@
+docs: 把「不建议用负面词 + CFG」的结论写进 README / API / 人体文档 / WebUI 文案
+
+上一轮只把结论写在实验文档里，用户实际会看到的地方（README 的核心结论、
+接口文档的参数说明、人体崩坏专章、WebUI 的 tooltip）还在推荐"反复出多余肢体时用 CFG 2~2.5"
+—— 那正是这次实验要检验的说法。不改就等于让文档继续给一个被实测否掉的建议。
+
+## README
+
+- 「已经跑出来的核心结论」新增第 7 条：耗时翻倍（11.5→22.2s / 13.8→26.5s，且与 CFG 取
+  2.0 还是 2.5 无关）、画面线稿化降饱和、收益未验证、立项前提（"多腿"）在 1:1 复核后
+  大部分是把手臂误判成了腿；要改人体结构优先走零成本的 prompt 工程
+- 附一条方法论教训：**fail-open 的工具必须自带"我还活着吗"的探针**，
+  判据是 `label` 不是 `passed`（144 条全 unavailable 却显示"0% 异常"）
+- 文档索引与目录结构表补上结果文档
+
+## docs/API.md
+
+- 参数表：`true_cfg_scale` / `negative_prompt` / `guidance_scale` 三行标注实测不建议使用
+- 原先写着"是否值得用于人体异常，应按 CFG-NEGATIVE-AB-TEST.md 做盲测后判断"，
+  改为引用实测结论（耗时、画面退化、收益未验证三点）+ 优先 prompt 工程的指引
+
+## docs/PROMPT-ANATOMY.md
+
+- 3.1 节标题补"实测也不建议用"，开头加一句话结论
+- 把"**它有没有效，我还没有可靠数据**"替换为实测表格（耗时/画面退化/收益未验证/前提推翻）
+  与结论：这条路不推荐；改 prompt 是零成本的路子（D 组耗时与 A 组逐位相同）
+
+## service/ui/index.html
+
+- 负面提示词 tooltip 补实测结论
+- CFG tooltip 把"平时留 1，反复出多余肢体时用 2~2.5"换成实测数据与"优先改 prompt"
+- `syncCfgNote()` 里 CFG>1 生效的提示由绿色改成警示色，并注明会让画面偏线稿、降饱和
+- 「填入人体负面词」的日志补一句"优先考虑改 prompt"
+
+改 index.html 用的是带 assert 的替换脚本（这个文件 edit 工具匹配不上，历史踩过），
+改完 `node tools/check_ui_js.js service/ui/index.html` 语法 OK，
+`webui_check_invariants` / `webui_check_size_priority` 仍全绿。
+
+## docs/README.md
+
+脚本清单补上这次实验的 11 个脚本，并单列 fail-open 探针那条教训。
+
+## 验证
+
+远端已部署：`curl /` 能匹配到新文案，`index.html` 的 md5 与本地一致
+（`b24afc11…`）；服务端每次请求现读该文件，不需要重启。

@@ -205,7 +205,7 @@ WebUI 则直接开 `http://<实例公网入口>/`，页面上输一次 key 就�
 
 | 目录 | 内容 |
 |---|---|
-| `docs/` | **[docs/README.md](docs/README.md) 总说明** · [DEPLOY.md](docs/DEPLOY.md) **部署（目录映射 + 三步）** · [API.md](docs/API.md) 接口定义 · [RESOLUTION.md](docs/RESOLUTION.md) **分辨率与尺寸怎么选（含 token 经济账）** · [PROMPT-ANATOMY.md](docs/PROMPT-ANATOMY.md) **人体崩坏怎么优化** · [CFG-NEGATIVE-AB-TEST.md](docs/CFG-NEGATIVE-AB-TEST.md) **CFG/负面词的多 seed 盲测方案** · [METADATA.md](docs/METADATA.md) **生成图元数据（PNG 内嵌 / 模型与图片 hash）** · [MEASUREMENTS.md](docs/MEASUREMENTS.md) 全部实测数据 · [SHARE.md](docs/SHARE.md) **镜像保存与分享** · [CASE-dress-shell.md](docs/CASE-dress-shell.md) 专项案例 · [CHANGELOG.md](docs/CHANGELOG.md) 改动记录 |
+| `docs/` | **[docs/README.md](docs/README.md) 总说明** · [DEPLOY.md](docs/DEPLOY.md) **部署（目录映射 + 三步）** · [API.md](docs/API.md) 接口定义 · [RESOLUTION.md](docs/RESOLUTION.md) **分辨率与尺寸怎么选（含 token 经济账）** · [PROMPT-ANATOMY.md](docs/PROMPT-ANATOMY.md) **人体崩坏怎么优化** · [CFG-NEGATIVE-AB-TEST.md](docs/CFG-NEGATIVE-AB-TEST.md) **CFG/负面词的多 seed 盲测方案** · [CFG-NEGATIVE-AB-RESULTS.md](docs/CFG-NEGATIVE-AB-RESULTS.md) **该方案的执行结论：不建议用 CFG** · [METADATA.md](docs/METADATA.md) **生成图元数据（PNG 内嵌 / 模型与图片 hash）** · [MEASUREMENTS.md](docs/MEASUREMENTS.md) 全部实测数据 · [SHARE.md](docs/SHARE.md) **镜像保存与分享** · [CASE-dress-shell.md](docs/CASE-dress-shell.md) 专项案例 · [CHANGELOG.md](docs/CHANGELOG.md) 改动记录 |
 | `docs/upstream/` | **官方文档本地副本**（GitHub README / HF 模型卡 / ModelScope / LICENSE / diffusers 管线源码），索引见 [docs/upstream/INDEX.md](docs/upstream/INDEX.md)。同步：`python tools/sync_upstream_docs.py` |
 | `service/` | **= 部署载荷**，结构与实例 `/root/qwen-image-2.1/` 一一对应。`server.py` HTTP 服务 · `client.py` 调试客户端 · `face_fix.py` 人脸回贴 · `ui/` 控制台 · `scripts/` 启停与环境脚本 |
 | `service/scripts/` | `serve.sh` 启停 · `bootstrap.sh` 一键恢复 · `qwen_env.sh` 环境变量 · `download_model.sh` 下权重 · `download_anatomy_model.sh` 下人体复检小模型（可选） · `bench.py` / `inspect_ckpt.py` / `show_url.sh` |
@@ -269,6 +269,21 @@ python tools/autodl_ssh.py run "nvidia-smi"
    受控实验显示：**不点名时两个主体会被融成一个，点名后正确分开**。
    详见 [docs/EXPERIMENT-ref-syntax.md](docs/EXPERIMENT-ref-syntax.md)。
    WebUI 上传参考图后，缩略图下方会出现 `<image1>`/`<image2>` 按钮，点一下插到 prompt 光标处。
+7. **负面提示词 + CFG 实测不建议使用**（144 张配对实验：3 类任务 × 4 组 × 12 seed）。
+   - **耗时翻倍**：1024²/20 步，不开 CFG 11.5s（文生图）/ 13.8s（编辑），开了 22.2s / 26.5s；
+     开销与 `true_cfg_scale` 取 2.0 还是 2.5 **无关**。
+   - **画面退化**：开了之后整体偏线稿/淡彩，留白多、颜色发灰，完成度肉眼可见地下降。
+   - **收益没验证出来**：唯一可用的自动判据（SmolVLM2-2.2B 审图）对插画风格**结构性一律 PASS**
+     （模型自己的指令里就写着 `PASS if ... stylized`），测不出"多一条腿"这一档；
+     人眼 1:1 逐格复核后，原本怀疑的"多腿"大部分是**把垂在身侧的手臂误判成了腿**。
+   - 想改善人体结构，优先走 **prompt 工程**：按官方 PE 方法改写 prompt 的耗时与不改**完全相同**
+     （零成本），而 CFG 是双倍成本换一个没验证出来的收益。详见
+     [docs/CFG-NEGATIVE-AB-RESULTS.md](docs/CFG-NEGATIVE-AB-RESULTS.md)。
+
+> 第 7 条同时留下一条方法论教训：**fail-open 的工具必须自带"我还活着吗"的探针。**
+> 那次实验的自动评分表显示"144 张全部 0% 异常、置信度 0.00"，
+> 实际是 144 条 `label` 全为 `unavailable`（断网导致模型没加载，fail-open 默认返回 PASS）。
+> 汇总表里"没判过"和"真的没问题"长得一模一样 —— 判据要用 `label`，不是 `passed`。
 
 细节和原始数据见 `docs/MEASUREMENTS.md`，逐步骤图文对比见 `reports/` 下的 HTML。
 
@@ -280,6 +295,7 @@ python tools/autodl_ssh.py run "nvidia-smi"
 - [docs/API.md](docs/API.md) —— HTTP 接口完整定义（含错误码、环境变量、上游对接片段）
 - [docs/EXPERIMENT-ref-syntax.md](docs/EXPERIMENT-ref-syntax.md) —— 参考图 `<imageN>` 引用语法：源码依据 + 受控实验
 - [docs/CFG-NEGATIVE-AB-TEST.md](docs/CFG-NEGATIVE-AB-TEST.md) —— negative prompt / CFG 的多 seed 配对盲测方案
+- [docs/CFG-NEGATIVE-AB-RESULTS.md](docs/CFG-NEGATIVE-AB-RESULTS.md) —— **上面那套方案的执行结果与结论**（不建议用 CFG；含两个失效工具的事后复核）
 - [docs/UI-AUDIT.md](docs/UI-AUDIT.md) —— WebUI 说明文案与参数选项逐项核查
 - [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) —— 性能表、显存账、每一轮实验的数据与结论
 - [docs/CHANGELOG.md](docs/CHANGELOG.md) —— 脚本目录调整、修过的 bug、接口变更
