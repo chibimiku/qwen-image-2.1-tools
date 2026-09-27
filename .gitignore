@@ -51,3 +51,6 @@ tmp_ab.sh
 # 提交信息临时文件（git add -A 曾经把它一起提交了）
 tmp_commit_msg.txt
 tmp_msg.txt
+# tools/ 下的提交信息与暂存名单临时文件（git 输出/脚本生成）
+tools/_msg*.txt
+tools/_staged.txt
