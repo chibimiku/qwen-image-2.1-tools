@@ -21,11 +21,29 @@ except SyntaxError as e:
     sys.exit(1)
 print("syntax OK  (%d lines, %d bytes)" % (src.count("\n") + 1, len(src.encode())))
 
-# ---------- 2. 从源码里抠出 _derive_size 与 _resolve_size，排除 torch 依赖 ----------
-want = {"_derive_size", "_resolve_size"}
+# ---------- 2. 从源码里抠出 _derive_size 与尺寸解析函数，排除 torch 依赖 ----------
+want = {"_derive_size", "_resolve_size", "_parse_size_text", "_coerce_size"}
 #   父节点是 Expr（被装饰器包着），所以用 body 里的 FunctionDef 抓
-ns = {"List": list, "Tuple": tuple, "Dict": dict, "Any": object, "Optional": object}
+class _FakeHTTPException(Exception):
+    """替身：真 HTTPException 要 fastapi，这里只要它带 status_code 就能被断言。"""
+    def __init__(self, status_code=400, detail=""):
+        self.status_code, self.detail = status_code, detail
+
+    def __str__(self):
+        return "%d %s" % (self.status_code, self.detail)
+
+
+import typing
+
+ns = {"List": list, "Tuple": tuple, "Dict": dict, "Any": object,
+      "Optional": typing.Optional, "re": __import__("re"),
+      "HTTPException": _FakeHTTPException,
+      "ASPECT_RATIOS": {"1:1": (2048, 2048), "2:3": (1696, 2528)}}
 for node in ast.walk(tree):
+    # 模块级常量（_SIZE_TOKEN 这类正则）也要搬进来，否则被抽出的函数会 NameError
+    if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "_SIZE_TOKEN" for t in node.targets):
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(SRC), "exec"), ns)
     if isinstance(node, ast.FunctionDef) and node.name in want:
         # 装饰器可能有，直接剥掉再编译
         node.decorator_list = []
@@ -89,6 +107,43 @@ FILL = [
     (1200, None, 0.75, (1216, 1600)),         # round(1200/32)*32=1216；高 1200/0.75=1600
     (None, 1600, 0.75, (1216, 1600)),
 ]
+print("--- size parsing (JSON/multipart 必须一致) ---")
+resolve = ns["_resolve_size"]
+SIZE_CASES = [
+    # (width, height, size, aspect, 期望)  —— 期望值即"两条请求路径的统一行为"
+    ("1024", "1024", None, None, (1024, 1024)),   # 字符串宽高：曾经 500（"1024"*"1024"）
+    (1024, 1024, None, None, (1024, 1024)),       # 数字宽高
+    (None, None, "1024x1024", None, (1024, 1024)),  # OpenAI 的 size 字段
+    ("1024×1536", None, None, None, "HTTP 400"),    # 全角乘号给 width 是错的 → 400，不是 500
+    (None, None, "1024×1536", None, (1024, 1536)),  # 全角乘号给 size 才对
+    (None, None, "1024 * 1536", None, (1024, 1536)),  # 兼容 "W * H"
+    (None, None, None, None, (2048, 2048)),       # 都没给 → 官方 2K 默认
+    (" 768 ", "1024", None, None, (768, 1024)),   # 前后空格
+    (None, None, None, "1:1", (2048, 2048)),      # 档位优先
+]
+for w, h, sz, asp, exp in SIZE_CASES:
+    try:
+        got = resolve(w, h, sz, asp)
+    except _FakeHTTPException as e:
+        got = "HTTP %d" % e.status_code
+    ok = got == exp
+    bad += 0 if ok else 1
+    print("  w=%-8s h=%-6s size=%-10s aspect=%-4s -> %-16s %s"
+          % (w, h, sz, asp, got, "OK" if ok else "MISMATCH exp=%s" % (exp,)))
+
+print("--- size parsing rejects garbage (400, 不是 500) ---")
+REJECT = [("abc", "1024"), ("0", "1024"), ("-100", "1024")]
+for w, h in REJECT:
+    try:
+        got = resolve(w, h, None, None)
+        ok = False
+    except _FakeHTTPException as e:
+        got, ok = "HTTP %d" % e.status_code, e.status_code == 400
+    except Exception as e:                                    # noqa: BLE001
+        got, ok = "%s: %s" % (type(e).__name__, e), False     # TypeError 就是这次修的 bug
+    bad += 0 if ok else 1
+    print("  w=%-6s h=%-6s -> %-28s %s" % (w, h, got, "OK" if ok else "SHOULD BE HTTP 400"))
+
 print("--- fill-one-side ---")
 for w, h, rr, exp in FILL:
     got = fill_one_side(w, h, rr)

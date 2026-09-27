@@ -23,23 +23,31 @@ PASSWORD = os.environ.get("AUTODL_PASS", "")
 ENVF = pathlib.Path(__file__).with_name("autodl.env")
 
 
-def load_env_file():
+def load_env_file(path=None):
+    """读实例连接信息。
+
+    优先级：环境变量 AUTODL_* > 指定文件 > 默认文件。
+    **环境变量优先**很重要：以前是文件无条件覆盖环境变量，换实例时必须改文件，
+    而 clone 出来的新机往往只想临时指一下（见 tools/autodl_new.env）。
+    用 --env FILE 可以指定另一个实例文件。
+    """
     global HOST, PORT, USER, PASSWORD
-    if not ENVF.exists():
+    envf = pathlib.Path(path) if path else ENVF
+    if not envf.exists():
         return
-    for raw in ENVF.read_text(encoding="utf-8").splitlines():
+    for raw in envf.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)
         k, v = k.strip(), v.strip().strip('"').strip("'")
-        if k == "AUTODL_HOST":
+        if k == "AUTODL_HOST" and not os.environ.get("AUTODL_HOST"):
             HOST = v
-        elif k == "AUTODL_PORT":
+        elif k == "AUTODL_PORT" and not os.environ.get("AUTODL_PORT"):
             PORT = int(v)
-        elif k == "AUTODL_USER":
+        elif k == "AUTODL_USER" and not os.environ.get("AUTODL_USER"):
             USER = v
-        elif k == "AUTODL_PASS":
+        elif k == "AUTODL_PASS" and not os.environ.get("AUTODL_PASS"):
             PASSWORD = v
 
 
@@ -70,8 +78,12 @@ def run(c, cmd, timeout=None):
 
 
 def main():
-    load_env_file()
     args = sys.argv[1:]
+    if args and args[0] == "--env":            # 指定实例文件（换机时用）
+        load_env_file(args[1])
+        args = args[2:]
+    else:
+        load_env_file()
     if not args:
         print(__doc__)
         return 2

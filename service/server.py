@@ -858,16 +858,54 @@ def mock_png(width: int, height: int, text: str) -> bytes:
     return buf.getvalue()
 
 
+_SIZE_TOKEN = re.compile(r"^\s*(\d{2,5})\s*[x×*]\s*(\d{2,5})\s*$")
+
+
+def _parse_size_text(value) -> Optional[tuple]:
+    """"1024x1024" / "1024×1024" / "1024 * 1024" → (1024, 1024)；不是这个形状就 None。
+
+    OpenAI 的 /v1/images/generations 用 `size` 传尺寸，本项目早期只认 `width`/`height`，
+    于是 `size` 被**静默忽略**、退回官方 2K 默认（正好差 4 倍像素）—— 这种"不报错但
+    按别的尺寸出图"比直接 400 更难查，所以这里统一收口。
+    """
+    if value is None:
+        return None
+    m = _SIZE_TOKEN.match(str(value))
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+def _coerce_size(value, name: str) -> Optional[int]:
+    """宽/高一律先过这里再往下走。
+
+    以前只有 multipart 分支做了 int()，JSON 分支直接把原值透传，于是 `"1024"`（字符串）
+    一路走到 `enforce_fitting_size` 里变成 `"1024" * "1024"` → TypeError → HTTP 500。
+    两种请求体必须在这里行为一致：能转就转，不能转就 400 说清楚，绝不把字符串放下去。
+    """
+    if value is None or value == "":
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        try:
+            n = int(float(value))
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"bad {name} '{value}', expected an integer")
+    if n < 32:
+        raise HTTPException(400, f"{name} must be >= 32, got {n}")
+    return n
+
+
 def _resolve_size(width, height, size, aspect_ratio):
     if aspect_ratio and aspect_ratio in ASPECT_RATIOS:
         return ASPECT_RATIOS[aspect_ratio]
     if size:
-        try:
-            w, h = str(size).lower().split("x")
-            return int(w), int(h)
-        except Exception:
-            raise HTTPException(400, f"bad size '{size}', expected 'WxH'")
-    return int(width or 2048), int(height or 2048)
+        parsed = _parse_size_text(size)
+        if parsed:
+            return parsed
+        raise HTTPException(400, f"bad size '{size}', expected 'WxH'")
+    return _coerce_size(width, "width") or 2048, _coerce_size(height, "height") or 2048
 
 
 def _b64(png: bytes) -> str:
@@ -1530,8 +1568,12 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
         transparent = str(g("transparent", "")).lower() in ("1", "true", "on", "yes")
         anatomy_check = str(g("anatomy_check", "")).lower() in ("1", "true", "on", "yes")
         anatomy_max_retries = int(g("anatomy_max_retries", 2))
-        width = int(g("width")) if g("width") is not None else None
-        height = int(g("height")) if g("height") is not None else None
+        width = _coerce_size(g("width"), "width")
+        height = _coerce_size(g("height"), "height")
+        if not (width and height):
+            parsed = _parse_size_text(g("size"))
+            if parsed:
+                width, height = parsed
         outres = int(g("output_resolution")) if g("output_resolution") is not None else None
         aspect = g("aspect_ratio")
         # 这两个以前只在 JSON 分支解析，multipart 会静默丢掉 → 两条路径行为不一致。
@@ -1560,7 +1602,13 @@ async def _parse_gen_request(request: Request) -> Dict[str, Any]:
         transparent = bool(b.get("transparent", False))
         anatomy_check = bool(b.get("anatomy_check", False))
         anatomy_max_retries = int(b.get("anatomy_max_retries", 2))
-        width, height = b.get("width"), b.get("height")
+        width = _coerce_size(b.get("width"), "width")
+        height = _coerce_size(b.get("height"), "height")
+        # OpenAI 兼容：只给 size="1024x1024" 时也要认（以前被静默丢掉，退回 2K）
+        if not (width and height):
+            parsed = _parse_size_text(b.get("size"))
+            if parsed:
+                width, height = parsed
         outres = b.get("output_resolution")
         aspect = b.get("aspect_ratio")
         request_id = b.get("request_id") or rid_hdr

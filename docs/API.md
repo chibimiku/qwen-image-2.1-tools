@@ -215,8 +215,8 @@ curl -H "Cookie: $COOKIE" https://<入口>/v1/models
 | `image` | file ×N | — | **可选**参考图（multipart，最多 10 张）；传了就走条件生成 |
 | `image_b64` | string[] | — | JSON 请求体里的参考图（base64 数组，可带 `data:` 前缀） |
 | `num_inference_steps` | int | 40 | 20~25 可明显提速 |
-| `width` / `height` | int | 2048×2048 | 显式尺寸 |
-| `size` | string | — | `"2048x2048"` 形式，优先级低于 width/height |
+| `width` / `height` | int 或 string | 2048×2048 | 显式尺寸。**`"1024"` 和 `1024` 等价**（服务端统一转整数）；非数字或 `< 32` 返回 400 |
+| `size` | string | — | OpenAI 兼容写法，`"2048x2048"`；全角 `×` 与 `"1024 * 1536"` 也认。优先级低于 width/height，形状不对返回 400 |
 | `aspect_ratio` | string | — | `1:1 4:3 3:4 3:2 2:3 16:9 9:16` |
 | `seed` | int | — | **不传 / 空串 / 负数都算「没指定」**，由服务端掷一个真随机种子（0 ~ 2³¹-1），并**如实回填到响应**里 |
 | `transparent` | bool | false | true 时服务自动补官方透明提示词前缀，输出 RGBA |

@@ -1,5 +1,129 @@
 # CHANGELOG
 
+## 2026-09-27（第三十二批）· JSON 请求里字符串宽高 → 500；顺带补上 OpenAI 的 `size` 字段
+
+### 怎么发现的
+
+跑 CFG/负面提示词 A/B 实验（`docs/CFG-NEGATIVE-AB-TEST.md`）时，144 张里 **t2i 那一类 48 张
+全灭**，`edit1`/`edit2` 却 96 张全绿。同一个实验脚本、同一套参数，只差一个 `image` 字段：
+
+```
+===== t2i =====
+  A seed=101: HTTP 500: Internal Server Error
+  ... 48 行全一样
+===== edit1 =====
+  A  负面词=无  CFG=1.0  12/12 张  平均 13.8s
+```
+
+脚本里两次请求**只有请求体格式不同**（无参考图走 JSON，有参考图走 multipart），
+所以问题一定在两条解析路径的差异上。服务端日志给出行号：
+
+```
+File "/root/qwen-image-2.1/service/server.py", line 693, in enforce_fitting_size
+    if width * height / 1e6 <= max_mp_for_budget(...):
+TypeError: can't multiply sequence by non-int of type 'str'
+```
+
+### 根因：一个端点，两条解析路径，行为不一致
+
+```python
+# multipart 分支（1533 行附近）—— 有 int()，所以能跑
+width  = int(g("width"))  if g("width")  is not None else None
+height = int(g("height")) if g("height") is not None else None
+
+# JSON 分支（1563 行）—— 原值直接透传，字符串就这么下去了
+width, height = b.get("width"), b.get("height")
+```
+
+JSON 里 `{"width": "1024", "height": "1024"}`（`json.dumps` 默认把 int 变字符串，
+调用方很容易这么写）→ `"1024" * "1024"` → `TypeError` → **500**。
+而同样的参数走 multipart 就正常 —— 这是最坏的一类 bug：**同一个接口，换个
+Content-Type 结果不一样，而且报的是 500（像是服务端炸了）而不是 400。**
+
+### 修法：宽高一律先过 `_coerce_size`，两条路径统一
+
+```python
+width  = _coerce_size(g("width"), "width")     # 能转就转
+height = _coerce_size(g("height"), "height")
+```
+
+- `"1024"` / `1024` / `" 768 "` → 整数
+- `"abc"` / `"0"` / `"-100"` → **400 并说清哪里错了**，不再等到显存预检里炸成 500
+- 补全了 multipart 分支也认 `size` 字段（以前只有 JSON 那条路能看见它）
+
+### 顺带修的第二个问题：OpenAI 的 `size` 字段被静默忽略
+
+OpenAI 的 `/v1/images/generations` 用 `size: "1024x1024"` 传尺寸，本项目只认
+`width`/`height`。于是标准客户端写法 `{"prompt": ..., "size": "1024x1024"}`
+**不报错**，只是悄悄退回官方 2K 默认 —— 差 4 倍像素，用户看到的是"我明明选了 1024"。
+静默按别的尺寸出图比直接 400 更难查，所以现在 `size` 正式支持：
+
+```python
+_SIZE_TOKEN = re.compile(r"^\s*(\d{2,5})\s*[x×*]\s*(\d{2,5})\s*$")
+```
+
+`"1024x1024"`、`"1024×1024"`（全角乘号）、`"1024 * 1024"` 都认；形状不对就 400。
+
+### 回归测试：把这次的 500 钉在本地
+
+`tools/check_server_size.py` 本来就是"从 server.py 里 AST 抠出函数来跑"的机制，
+正好可以把这次的 bug 变成不需要 GPU 的用例：
+
+```
+--- size parsing (JSON/multipart 必须一致) ---
+  w=1024     h=1024   size=None       aspect=None -> (1024, 1024)     OK   ← 曾经 500
+  w=None     h=None   size=1024x1024  aspect=None -> (1024, 1024)     OK
+  w=1024×1536 h=None  size=None       aspect=None -> HTTP 400         OK
+  w=None     h=None   size=1024×1536  aspect=None -> (1024, 1536)     OK
+  w=None     h=None   size=None       aspect=None -> (2048, 2048)     OK   ← 官方 2K 默认
+--- size parsing rejects garbage (400, 不是 500) ---
+  w=abc    h=1024   -> HTTP 400                     OK
+  w=0      h=1024   -> HTTP 400                     OK
+  w=-100   h=1024   -> HTTP 400                     OK
+```
+
+同时补了远程端到端脚本 `remote/scripts/_verify_t2i_json.py`（4 次真推理，1 分钟内跑完），
+断言 JSON 字符串、JSON 数字、multipart 三条路径**给出同一个尺寸**：
+
+```
+  JSON width='1024'            200  1024x1024  1324193 B  3.5s
+  JSON width=1024              200  1024x1024  1324194 B  3.0s
+  JSON size="1024x1536"        200  1024x1536  1977062 B  4.7s
+  multipart str                200  1024x1024  1324195 B  3.0s
+  JSON {"width": "abc", ...}   HTTP 400  {"detail":"bad width 'abc', expected an integer"}
+```
+
+### 顺带：实验脚本补跑模式
+
+`_cfg_ab_generate.py` 现在支持 `python _cfg_ab_generate.py t2i` 只跑一类，
+并且 manifest **追加**而不是覆盖 —— 48 张要补跑，不能把前面 96 张的记录冲掉。
+另外加了 `-u` 启动：原来 stdout 被 Python 缓冲，跑到一半时日志是空的，
+只能靠 PNG 文件的 mtime 猜进度。
+
+### 同一轮实验暴露的第三个问题：审图模型 fail-open 把"工具坏了"伪装成"结果很好"
+
+补跑完成后，144 张的自动评分表是 **12 行全部 FAIL 0%、平均置信度 0.00**。
+这看着像好消息，实际是 `inspect_image()` 一张都没判过 ——
+`auto_labels.jsonl` 里 144 条全是 `label: "unavailable"`，
+原因是集群内网连不出外网，`from_pretrained` 为每个文件向 huggingface.co 发 HEAD，
+5 次重试后抛 OSError，而 fail-open 分支返回了 `passed=True`。
+
+修法（`service/anatomy_check.py`）：本地目录在**模块导入期**就设离线 ——
+放 `_load()` 里不够，因为 huggingface_hub 在 import 时读一次 `HF_HUB_OFFLINE`
+存进自己的常量，之后改 `os.environ` 可能不生效。
+
+```python
+if is_local_dir(MODEL_ID):
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+```
+
+同时加了自检脚本 `remote/scripts/_anatomy_sanity.py`：用**故意画成三条腿**的图
+验证模型不是永远 PASS。自检的结论同样重要 —— 修好加载之后，它对三条腿和两条腿
+**都返回 PASS**，理由是 `The image is a cartoon`，而模型自己的指令里就写着
+`PASS if ... the image is stylized`。所以它对插画风格的输出**结构性无区分力**，
+不能当异常率判据。完整分析与实验结论见 `docs/CFG-NEGATIVE-AB-RESULTS.md`。
+
 ## 2026-09-27（凌晨 · 第三十一批）· 服务重启后页面卡死 + 登录框输不进字
 
 ### 用户反馈

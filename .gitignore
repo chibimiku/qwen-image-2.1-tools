@@ -1,6 +1,7 @@
 # 凭据与本地环境 —— 绝对不要提交（仓库是公开的）
 autodl.env
 autodl2.env
+autodl_new.env
 instance.env
 tunnel.conf
 .qwenkey
@@ -23,6 +24,9 @@ test-data/
 reports/
 tmp_refs/
 tmp_ab/
+# CFG/负面提示词 A/B 实验的图表副本：脚本在 remote/scripts/，
+# 这里的图只用于当次判图，没必要进仓库
+exp/
 
 # 生成图：服务端从这一版起自动落盘到 outputs/YYYY-MM-DD/序号-seed.png。
 # 这是产物，绝不提交（镜像里 /root/qwen-image-2.1/outputs 同理，不属于服务端代码）。
@@ -36,43 +40,5 @@ outputs/**/*.png
 Thumbs.db
 desktop.ini
 
-# ---------------------------------------------------------------------------
-# 以下是本项目补的（上游模板里没有的）
-# ---------------------------------------------------------------------------
-
-# 凭据与本地环境 —— 绝对不要提交（仓库是公开的）
-autodl.env
-autodl2.env
-instance.env
-tunnel.conf
-.qwenkey
-*.key
-*.pem
-
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-
-# 运行产物 / 临时文件
-_run.log
-tunnel_run.log
-*.log
-
-# 实验产物（体积大：图片约 300 MB，仓库不收录；需要的话本地保留或另开 LFS）
-test-data/
-reports/
-tmp_refs/
-
-# 生成图：服务端从这一版起自动落盘到 outputs/YYYY-MM-DD/序号-seed.png。
-# 这是产物，绝不提交（镜像里 /root/qwen-image-2.1/outputs 同理，不属于服务端代码）。
-outputs/
-**/outputs/
-outputs/**/*.png
-
-# 编辑器 / 系统
-.vscode/
-.idea/
-Thumbs.db
-desktop.ini
+# 临时启动脚本（曾经在仓库根目录留过一份带明文 key 的 ab 启动脚本）
+tmp_ab.sh

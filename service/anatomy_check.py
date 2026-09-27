@@ -49,6 +49,37 @@ def _pick_dtype():
         return torch.float16
     return torch.float16 if DEVICE.startswith("cuda") else torch.bfloat16   # auto
 
+
+def is_local_dir(path: str) -> bool:
+    """模型路径是不是本地目录（而不是 HF repo id）。"""
+    return os.path.isdir(path)
+
+
+# 本地目录 → 直接离线。放在**模块导入期**，而不是等 _load()：
+# huggingface_hub 在 import 时会读一次 HF_HUB_OFFLINE 缓存到自己的常量里，
+# 之后再改 os.environ 可能不生效。实测踩过：调用方已经 export 了
+# HF_HUB_OFFLINE=1，加载仍去连 huggingface.co —— 因为那是在导入之后设的。
+if is_local_dir(MODEL_ID):
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
+
+def ensure_offline_if_local(model_ref: str) -> bool:
+    """模型已经是本地目录时，强制 HF 走离线模式。返回是否生效。
+
+    为什么必须做：就算目录里文件齐全，`from_pretrained` 默认仍会为每个文件向
+    huggingface.co 发一次 HEAD（查有没有新版本）。集群内网机器出不了外网，
+    于是加载被拖进 5 次重试 + 指数退避，最后抛 OSError。
+    而 inspect_image 是 **fail-open** 的：加载失败会返回 passed=True ——
+    调用方看到的是"模型说全部没问题、置信度 0.00"，很容易误读成"没有异常"。
+    """
+    if not is_local_dir(model_ref):
+        return False
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    return os.environ.get("HF_HUB_OFFLINE") == "1"
+
+
 _model = None
 _processor = None
 _load_error = None
@@ -78,6 +109,8 @@ def _load() -> None:
             except ImportError:
                 from transformers import AutoModelForVision2Seq as ModelClass
 
+            # 本地目录就直接离线读，别让每个文件都去 HEAD huggingface.co
+            ensure_offline_if_local(MODEL_ID)
             _processor = AutoProcessor.from_pretrained(MODEL_ID)
             dtype = _pick_dtype()
             _model = ModelClass.from_pretrained(
