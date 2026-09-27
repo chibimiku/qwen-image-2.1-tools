@@ -19,6 +19,16 @@ export QWEN_PRELOAD=${QWEN_PRELOAD:-1}    # 启动即加载，避免首请求等
 # （实测：不开时 2048² 文生图直接 CUDA OOM；开了之后峰值 32.5G、115s 出图）
 export QWEN_TILE_VAE=${QWEN_TILE_VAE:-1}
 export QWEN_PORT=${QWEN_PORT:-6006}
+# ── 可选的人体异常复检 ────────────────────────────────────────────────────
+# 只有请求 anatomy_check=true 时才按需加载；默认放 CPU，完全不占主模型显存。
+# 500M 那版答不出 `PASS|置信度|理由` 的格式（永远只回 "PASS."），已换 2.2B。
+# 实例上从 ModelScope 下到本地目录后，直接指过去可省掉首次联网下载：
+#   export QWEN_ANATOMY_MODEL=/root/autodl-tmp/models/SmolVLM2-2.2B-Instruct
+export QWEN_ANATOMY_MODEL=${QWEN_ANATOMY_MODEL:-HuggingFaceTB/SmolVLM2-2.2B-Instruct}
+export QWEN_ANATOMY_DEVICE=${QWEN_ANATOMY_DEVICE:-cpu}
+# CPU 上的精度：auto = 支持 bf16 就用 bf16（本机实测快 1.8 倍）；老 CPU 显式设 float32
+export QWEN_ANATOMY_DTYPE=${QWEN_ANATOMY_DTYPE:-auto}
+export QWEN_ANATOMY_MIN_CONFIDENCE=${QWEN_ANATOMY_MIN_CONFIDENCE:-0.78}
 # ── 接口鉴权 ─────────────────────────────────────────────────────────────
 # QWEN_API_KEY : 主 key（访问 /v1/* 与 /docs 需要它）
 #                带法一 Authorization: Bearer <key>   带法二 ?key=<key>

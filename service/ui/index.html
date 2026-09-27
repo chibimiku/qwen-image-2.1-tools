@@ -219,6 +219,11 @@
       </div>
       <div class="kbd" id="sessbar" style="margin:10px 0 2px">检查登录状态…</div>
 
+      <details id="advancedGeneration" style="margin-top:10px">
+        <summary style="cursor:pointer;color:var(--dim);font-size:12px">
+          高级实验设置（负面提示词 / CFG / 多图 / sigmas）
+        </summary>
+        <div style="margin-top:8px">
       <div id="negwrap">
         <label>负面提示词 negative_prompt
           <span class="q">?<span class="tip">
@@ -279,6 +284,8 @@
           </div>
         </details>
       </div>
+        </div>
+      </details>
       <div id="uplwrap" style="display:none">
         <label>参考图（最多 10 张）
           <span class="q">?<span class="tip">
@@ -819,7 +826,7 @@ function syncCfgNote(){
       cfg + '（=不开引导）—— <b>负面词不会生效</b>。要用就把 CFG 调到 &gt;1。</span>';
   } else if (cfg > 1 && !hasNeg){
     note.innerHTML = '<span style="color:var(--warn)">⚠ CFG=' + cfg +
-      ' 但没填负面提示词 —— 引导没有对照目标，只会白花一倍时间。填上负面词或把 CFG 调回 1。</span>';
+      ' 但没填负面提示词 —— 管线不会启用引导，这个数值会被忽略。填上负面词或把 CFG 调回 1。</span>';
   } else if (cfg > 1){
     note.innerHTML = '<span style="color:var(--good)">CFG=' + cfg +
       ' + 负面词：引导生效，耗时约 ×2。</span>';
@@ -1028,6 +1035,13 @@ function setMode(m){
   // 负面提示词两种模式都显示：编辑模式恰恰是最需要它的时候（多余肢体）
   $('negwrap').style.display = 'block';
   $('outreswrap').style.display = m === 'edit' ? 'block' : 'none';
+  // /v1/jobs 当前只收 JSON，不携带编辑参考图；编辑模式必须走同步 multipart。
+  const asyncBox = $('async');
+  if (asyncBox){
+    if (m === 'edit') asyncBox.checked = false;
+    asyncBox.disabled = m === 'edit';
+    asyncBox.title = m === 'edit' ? '图像编辑需要上传参考图，暂不支持异步 JSON 提交' : '';
+  }
   // 档位两种模式都可用：文生图=直接定尺寸；编辑=覆盖参考图尺寸（可出 2K）
   const sel = $('ratio');
   if (sel){
@@ -1599,6 +1613,10 @@ async function run(){
       fd.append('transparent', p.transparent);
       fd.append('anatomy_check', p.anatomy_check);
       fd.append('anatomy_max_retries', p.anatomy_max_retries);
+      if (p.negative_prompt) fd.append('negative_prompt', p.negative_prompt);
+      if (p.true_cfg_scale !== undefined) fd.append('true_cfg_scale', p.true_cfg_scale);
+      if (p.num_images_per_prompt !== undefined) fd.append('num_images_per_prompt', p.num_images_per_prompt);
+      if (p.sigmas) fd.append('sigmas', p.sigmas);
       if ($('outres').value) fd.append('output_resolution', $('outres').value);
       // 编辑模式的尺寸优先级：跟随参考图 > 档位 > 手填宽高。
       // **跟随必须排在档位前面**：以前档位先判，导致跟随开着时选档位会悄悄覆盖掉跟随

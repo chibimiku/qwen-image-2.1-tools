@@ -88,8 +88,9 @@ async function on401(){
 
 ### 修掉两个由此暴露的 bug
 
-1. **进度分母取错**：`tot = steps * getattr(pipe, "num_images_per_prompt", 1)` 取的是
-   **管线的类属性**而不是请求张数，多图时进度条会早早走满。改成按请求里的张数算。
+1. **进度分母取错**：后续复核 Diffusers 循环确认，多图是同一个 batch，每个 timestep
+   只触发一次回调，因此总进度仍是 `steps`（自定义 `sigmas` 时取其长度），不能乘图片张数。
+   同时改为给管线传 `generator` 列表，保证第 i 张标注的 `seed+i` 能单独复现。
 2. **多图撞序号**：序号靠扫目录得出，而一次出多张时三张都在写盘前就分配好路径，
    于是三张全拿到同一个序号（实测 `59-700001` / `59-700002` / `59-700003`）。
    加了"本批已分配路径"集合来预留。另一个连带 bug：`PNG_METADATA=none` 时整块逻辑被跳过，
@@ -98,7 +99,8 @@ async function on401(){
 ### UI 改动
 
 - **负面提示词改成两种模式都显示**（此前 `setMode` 里 `edit` 模式直接隐藏它）
-- 新增「高级参数」区：`true_cfg_scale` + `num_images_per_prompt` + 折叠的 `sigmas`
+- 新增默认折叠的「高级实验设置」：`negative_prompt` + `true_cfg_scale` +
+  `num_images_per_prompt` + `sigmas`。官方默认路径仍是 CFG=1、无负面词。
 - 两个快捷按钮：**填入人体负面词** / **填入画质负面词**（会顺手把 CFG 设成 2.5，
   因为负面词需要 CFG>1 才生效 —— 否则用户以为填了就有用）
 - **联动提示**（`cfgnote`）把两种"白填"直接标出来：
@@ -1469,4 +1471,3 @@ S2 AFTER   busy=true  disabled=true      ← 之后 S3/S4 全部起不来
 
 ### 备注
 - `tools/autodl.env` 与 `tools/autodl2.env` 含实例 SSH 凭据，仅本机使用，不要外发或提交到公开仓库。
-

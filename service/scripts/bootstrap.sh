@@ -22,14 +22,14 @@ echo
 echo "==== 1/5 依赖 ===="
 source /etc/network_turbo >/dev/null 2>&1
 NEED_OK=1
-for m in torch transformers diffusers accelerate safetensors fastapi uvicorn PIL; do
+for m in torch transformers diffusers accelerate safetensors fastapi uvicorn PIL num2words; do
   V=$(python -c "import $m;print(getattr($m,'__version__','?'))" 2>/dev/null) || { echo "  $m 缺失"; NEED_OK=0; continue; }
   printf '  %-14s %s\n' "$m" "$V"
 done
 if [ "$NEED_OK" = "0" ]; then
   echo "  补装依赖（约 3~5 分钟）..."
   pip install -q -U "transformers>=5.17" accelerate safetensors hf_transfer sentencepiece \
-      pillow fastapi "uvicorn[standard]" python-multipart requests modelscope 2>&1 | tail -2
+      pillow fastapi "uvicorn[standard]" python-multipart requests modelscope num2words 2>&1 | tail -2
   pip install -q "git+https://github.com/huggingface/diffusers.git" 2>&1 | tail -2
 fi
 python -c "from diffusers import QwenImage21Pipeline; print('  QwenImage21Pipeline 可用')" \

@@ -984,7 +984,13 @@ async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
         seed_given = bool(req.get("_seed_given_override", seed is not None))
         if not seed_given:
             seed = random.randrange(0, 2 ** 31 - 1)
-        generator = torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(int(seed))
+        generator_device = "cuda" if torch.cuda.is_available() else "cpu"
+        n_per = max(1, int(req.get("num_images_per_prompt") or 1))
+        # 管线会把 N 张放进同一个 batch；给 generator 列表才能保证响应里标注的
+        # seed+i 真的能单独复现对应图片，而不是只描述全局 RNG 连续状态。
+        generator = [torch.Generator(generator_device).manual_seed(int(seed) + i)
+                     for i in range(n_per)] if n_per > 1 else (
+                         torch.Generator(generator_device).manual_seed(int(seed)))
         kwargs: Dict[str, Any] = {
             "prompt": prompt,
             "num_inference_steps": steps,
@@ -1022,10 +1028,9 @@ async def _generate_once(req: Dict[str, Any]) -> List[Dict[str, Any]]:
         # ---- 真实进度：挂在管线的 per-step 回调上 ----
         prog = _new_progress(req.get("request_id"), steps)
         req["_progress"] = prog
-        # 一次出 N 张时，回调总共会被调 steps*N 次（每张图各走一遍去噪），
-        # 所以进度分母要按请求里的张数算 —— 以前取的是 pipe 的类属性，多图时对不上。
-        n_per = max(1, int(req.get("num_images_per_prompt") or 1))
-        tot = max(1, int(steps) * n_per)
+        # 多图是 batch 并行，每个 timestep 只回调一次，不是 steps*N 次。
+        # 自定义 sigmas 会取代默认调度，实际步数以 sigma 数量为准。
+        tot = max(1, len(req.get("sigmas") or []) or int(steps))
 
         def _on_step(pipe_ref=None, step=None, timestep=None, callback_kwargs=None, **_ignored):
             """diffusers 每步都会调；用它算真实步数、每步耗时与 ETA。"""
@@ -1709,12 +1714,16 @@ async def create_job(request: Request, tasks: BackgroundTasks):
     req = {
         "prompt": prompt, "width": width, "height": height,
         "num_inference_steps": int(body.get("num_inference_steps", 40)),
-        "seed": body.get("seed"), "output_format": body.get("output_format", "png"),
+        "seed": _norm_seed(body.get("seed")), "output_format": body.get("output_format", "png"),
         "transparent": body.get("transparent", False),
         "anatomy_check": bool(body.get("anatomy_check", False)),
         "anatomy_max_retries": int(body.get("anatomy_max_retries", 2)),
-        "guidance_scale": body.get("guidance_scale"),
+        "guidance_scale": (body.get("guidance_scale") if body.get("guidance_scale") is not None
+                           else body.get("true_cfg_scale")),
         "negative_prompt": body.get("negative_prompt"),
+        "num_images_per_prompt": max(1, min(int(body.get("num_images_per_prompt", 1)), 8)),
+        "sigmas": _parse_sigmas(body.get("sigmas")),
+        "output_resolution": body.get("output_resolution"),
     }
     job_id = "job_" + uuid.uuid4().hex[:16]
     req["request_id"] = job_id                      # 用 job_id 当进度键，前端可直接轮询

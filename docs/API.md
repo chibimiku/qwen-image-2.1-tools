@@ -231,7 +231,13 @@ curl -H "Cookie: $COOKIE" https://<入口>/v1/models
 
 > **`negative_prompt` + `true_cfg_scale` 是一对**：管线源码 L668-674 规定，`true_cfg_scale <= 1`
 > 时给了负面词只会打一条 warning，**不生效**。所以要么两个一起用，要么都不给
-> （只给 CFG 不给负面词 = 白花一倍时间做无对照的引导）。
+> 只给 CFG 不给负面词时管线同样不会启用引导，只会 warning；真正增加计算量的是
+> `true_cfg_scale > 1` 与负面词同时存在的情况。
+
+这两个参数属于 Diffusers 管线能力，不是 Qwen 官方 README / HF 模型卡的推荐调参路径。
+官方示例与推荐默认值是 40 步、`true_cfg_scale=1`（无 guidance），官方博客也没有给负面词表。
+WebUI 因此把它们放在默认折叠的“高级实验设置”中。是否值得用于人体异常，应按
+[`CFG-NEGATIVE-AB-TEST.md`](CFG-NEGATIVE-AB-TEST.md) 做多 seed 配对盲测后判断。
 
 ```bash
 curl -s -X POST "http://127.0.0.1:6006/v1/images/generations" \

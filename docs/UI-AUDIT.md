@@ -1,8 +1,9 @@
 # WebUI 说明文案与参数选项核查
 
 > 核查对象：`service/ui/index.html` + `service/server.py`
-> 时间：2026-09-26　方法：逐项对着服务端解析代码与官方源码/README 核对，不靠印象
-> 结论：**7 项正确、4 项已修、1 项已知限制**
+> 时间：2026-09-27　方法：逐项对着服务端解析代码、官方 README/HF 模型卡、官方博客与
+> Diffusers `QwenImage21Pipeline` 核对，不靠印象
+> 结论：主流程参数与官方示例对齐；管线支持但官方不推荐为默认的参数已收进“高级实验设置”
 
 ## 一、参数选项核查
 
@@ -14,9 +15,21 @@
 | 4 | `seed` | 留空或**负数**=随机；出图后不回填输入框，点历史缩略图才填回该图 seed | `_norm_seed()`：`None` / `""` / `<0` 一律 → `None`（服务端自己掷） | ✅ 正确（负数以前会被原样送进 generator，见 §2.4） |
 | 5 | `transparent` | 复选 | `str(g("transparent","")).lower() in ("1","true","on","yes")` | ✅ 正确（UI 传 `true`） |
 | 6 | `output_resolution` | 仅编辑模式显示，1024 / 1280 | 有参考图时决定像素预算；**给了宽高时仍决定参考图被缩到多大**（官方 docstring：derive height/width **and to resize condition images**） | ✅ 正确；语义详见 [RESOLUTION.md](RESOLUTION.md)，文案已改成两点式说明 |
-| 7 | `negative_prompt` | 仅文生图模式显示 | 原来只在 JSON 分支解析 | ⚠️ **已修**（见下） |
-| 8 | `guidance_scale` | UI 未暴露 | 原来只在 JSON 分支解析 | ⚠️ **已修**（见下） |
-| 9 | `size` | UI 未暴露 | `_resolve_size` 支持 `"2048x2048"` | ✅ 一致（UI 用档位/宽高即可） |
+| 7 | `negative_prompt` | 默认空，高级区 | Diffusers 支持；CFG≤1 时忽略 | ✅ 能力真实，但不是官方 README/博客推荐项 |
+| 8 | `true_cfg_scale` | 默认 1，高级区 | Diffusers 正式参数；>1 且有负面词才启用 | ✅ 默认与官方“no guidance”一致 |
+| 9 | `num_images_per_prompt` | 默认 1，高级区，1~8 | Diffusers 正式参数，batch 并行 | ✅；多张显存会增加，generator 按 `seed+i` 分开 |
+| 10 | `sigmas` | 默认空，高级区 | Diffusers 正式参数；替代默认调度 | ✅；官方只定义能力，没有推荐取值 |
+| 11 | `size` | UI 未暴露 | `_resolve_size` 支持 `"2048x2048"` | ✅ 一致（UI 用档位/宽高即可） |
+| 12 | `anatomy_check` | 默认关闭 | 本项目后处理能力，不属于 Qwen 管线 | ✅ 已明确标作轻量复检，不冒充官方参数 |
+
+### 1.1 官方资料对 CFG / negative prompt 的真实结论
+
+官方 README、HF 模型卡的示例只使用 prompt、图像、尺寸、40 步和 generator；“Default Parameters”
+也只列 40 步与 2048×2048。官方博客没有提供 negative prompt、CFG 推荐值或词表。
+Diffusers 管线则确实实现了 `negative_prompt` / `true_cfg_scale`，并明确默认 `1.0`、模型按无引导
+方式采样。因此二者应保留用于实验，但不应和 prompt、尺寸、步数并列成日常必调项。WebUI 已将
+`negative_prompt`、CFG、`num_images_per_prompt`、`sigmas` 统一放进默认闭合的高级区；验证方案见
+[CFG-NEGATIVE-AB-TEST.md](CFG-NEGATIVE-AB-TEST.md)。
 
 ## 二、已修的五处
 
@@ -143,8 +156,8 @@ def _norm_seed(value):        # None / "" / 负数 → None（= 服务端自己�
 
 1. **参考图不能拖拽排序**。tooltip 已如实说明「想换顺序就先删掉再按新顺序重新添加」。
    顺序同时影响 `<imageN>` 编号和输出比例，所以这个限制值得后续补。
-2. **`negative_prompt` 在编辑模式不可见**。后端已支持（本次修好 multipart），UI 没开。
-   想用可以先在文生图模式填好再切过去（表单记忆会保留），或直接调 API。
+2. **编辑模式不支持“异步提交”**。`/v1/jobs` 目前只收 JSON，不携带上传文件；UI 已在编辑模式
+   禁用该复选框，避免参考图被丢掉后悄悄变成文生图。
 3. **没有速率限制/配额**。`QWEN_API_KEY` 是唯一闸门，公网入口一旦泄漏 key 等于送 GPU。
 4. **`ratio_follow` 类参数不存在**。那属于官方 PE（另一个 checkpoint），本服务跑原始管线。
 
