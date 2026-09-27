@@ -42,3 +42,7 @@ desktop.ini
 
 # 临时启动脚本（曾经在仓库根目录留过一份带明文 key 的 ab 启动脚本）
 tmp_ab.sh
+
+# 提交信息临时文件（git add -A 曾经把它一起提交了）
+tmp_commit_msg.txt
+tmp_msg.txt
