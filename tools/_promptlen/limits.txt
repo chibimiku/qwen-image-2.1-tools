@@ -1,0 +1,12 @@
+== config ==
+  config failed: ValueError Unrecognized model in /root/autodl-tmp/Qwen-Image-2.1. Should have a `model_type` key in its config.json.
+== text encoder config ==
+  text_encoder.image_token_id: 151655
+  text_encoder.video_token_id: 151656
+  text_encoder.vision_start_token_id: 151652
+  text_encoder.vision_end_token_id: 151653
+  text_encoder.model_type: qwen3_vl
+  text_encoder.text_config.max_position_embeddings: 262144
+  text_encoder.text_config.rope_parameters: {'mrope_interleaved': True, 'mrope_section': [24, 20, 20], 'rope_type': 'default', 'rope_theta': 5000000}
+== tokenizer ==
+  processor failed: ValueError Unrecognized processing class in /root/autodl-tmp/Qwen-Image-2.1. Can't instantiate a processor, a tokenizer, an image processor, a video processor or a feature extractor for this model. Make sure the repository contains the files of at least one of those processing classes.

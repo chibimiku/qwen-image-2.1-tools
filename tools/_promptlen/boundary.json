@@ -1,0 +1,19 @@
+[
+  {
+    "target_tokens": 9100,
+    "chars": 37125,
+    "http": 200,
+    "elapsed_s": 30.76,
+    "png_bytes": 1627300,
+    "ok": true
+  },
+  {
+    "target_tokens": 9200,
+    "chars": 37455,
+    "ok": false,
+    "elapsed_s": 114.89,
+    "error": "ConnectionError: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))",
+    "health_after": "{\"status\":\"ok\",\"model\":\"Qwen-Image-2.1\",\"loaded\":true,\"mode\":\"auto\",\"mock\":false,\"checkpoint\":{\"dir\"",
+    "restarted": true
+  }
+]

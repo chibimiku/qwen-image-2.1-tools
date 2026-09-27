@@ -48,7 +48,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from PIL import Image, PngImagePlugin
 
 from anatomy_check import inspect_image as inspect_anatomy, status as anatomy_status
@@ -59,6 +59,15 @@ PORT = int(os.environ.get("QWEN_PORT", "6006"))
 # WebUI：优先取 QWEN_UI_DIR，其次取本文件旁边的 ui/ 目录
 _HERE = os.path.dirname(os.path.abspath(__file__))
 UI_DIR = os.environ.get("QWEN_UI_DIR", os.path.join(_HERE, "ui"))
+# 官方提示词改写方法论原文（PE 的 system prompt）——控制台上有按钮直接打开。
+# 刻意放在 service/ui/docs/ 下：这样它跟着 service/ 的常规部署载荷一起上实例，
+# 不需要给仓库根的 docs/ 单独开一条传输规则。内容来自 docs/upstream/，见该目录的 README。
+_STYLE_DOC_DIRS = [
+    os.environ.get("QWEN_DOCS_DIR", ""),
+    os.path.join(UI_DIR, "docs"),
+    os.path.join(os.path.dirname(_HERE), "docs", "upstream"),
+    os.path.join(_HERE, "docs", "upstream"),
+]
 MOCK = os.environ.get("QWEN_MOCK", "0") == "1"
 FORCE_CPU = os.environ.get("QWEN_FORCE_CPU", "0") == "1"
 # mode: auto  -> mock when no GPU is attached (no-卡 mode), real inference when a GPU shows up
@@ -77,6 +86,16 @@ EXTRA_KEYS = os.environ.get("QWEN_API_KEYS", "")
 #   auto   : 不注入，浏览器自己填（首次询问一次，存 localStorage）—— 分享场景用这个
 #   off    : 页面按"服务无鉴权"工作（要求 QWEN_API_KEY 也为空）
 UI_KEY_MODE = os.environ.get("QWEN_UI_KEY", "inject").lower()
+# ── prompt 长度预算 ─────────────────────────────────────────────────────────
+# 实测（docs/PROMPT-LENGTH-LIMIT.md，2026-09-27 于 4090 48G / offload=none）：
+# DiT 的 RoPE 频率表只有 8192+1024 = 9216 个位置，文本 token 与参考图的 vision token
+# **共用这一份额名**。纯文本约 9100 token 通过、9200 越界；带一张 1024² 参考图时
+# 文本预算掉到约 8100。越界不是干净报错，而是 CUDA gather 越界 assert
+# （vectorized_gather_kernel: index out of bounds），**并把 CUDA 上下文弄坏**，
+# 之后连 /health 都 500，必须重启服务。
+# 注意：官方文档没有给过任何 prompt 长度上限，这个 9216 是看 diffusers 管线源码 + 实测得到的。
+MAX_PROMPT_POSITIONS = int(os.environ.get("QWEN_MAX_PROMPT_POSITIONS", "9216"))
+PROMPT_SAFE_POSITIONS = int(os.environ.get("QWEN_SAFE_PROMPT_POSITIONS", "9000"))
 # ── 会话（浏览器登录后拿到的 HttpOnly Cookie）────────────────────────────────
 # 有了它，浏览器端就**不需要把 key 存进 JS**（localStorage / 变量都不必），
 # 页面里的 JS 从头到尾看不到 API Key，Cookie 也不会被 XSS 读走。
@@ -1407,6 +1426,11 @@ async def index():
         injected = API_KEY if UI_KEY_MODE == "inject" else ""
         html = html.replace("__QWEN_KEY_INJECT__", injected)
         html = html.replace("__QWEN_KEY_MODE__", UI_KEY_MODE)
+        # 「官方提示词方法论」那几个按钮指向受保护的 /v1/style-docs/*。
+        # 注册了 key 时，把 key 拼到链接上：已登录的浏览器本来就有会话 Cookie，
+        # 未登录时也不至于点了 401；未配置 key 时 query 参数会被守卫忽略。
+        doc_key = "?key=" + quote(API_KEY) if API_KEY else ""
+        html = html.replace("__QWEN_DOC_KEY__", doc_key)
         # 不注入模式下发个响应头，方便排障时确认模式
         return HTMLResponse(html, headers={"X-UI-Key-Mode": UI_KEY_MODE})
     return HTMLResponse(
@@ -1423,6 +1447,242 @@ async def ui_alias():
 @app.get("/favicon.ico")
 async def favicon():
     return Response(status_code=204)
+
+
+# --------------------------------------------------------------------------- #
+# 官方提示词方法论原文（PE 的 system prompt）
+#
+# 控制台上的「官方提示词方法论」按钮指向这里。服务本身**不含** PE：它跑的是原始
+# 管线，没有改写层。所以这四个文件只是把官方的写作规范摆出来给用户照抄——
+# 想真正自动改写，得另外起 PE 的 9B checkpoint。
+#
+# 只发白名单里的文件名，路径永远由服务端拼，不接受任何用户输入拼路径。
+# --------------------------------------------------------------------------- #
+STYLE_DOCS = {
+    "prompt-rewriter-T2I-system-prompt.txt":
+        ("官方 PE 改写方法论 · 文生图", "Qwen-Image-2.1-PE-T2I 的 system prompt，八步法"),
+    "prompt-rewriter-I2I-system-prompt.txt":
+        ("官方 PE 改写方法论 · 图像编辑", "Qwen-Image-2.1-PE-I2I 的 system prompt，含 Attribute Disentanglement"),
+    "qwen-image-2.1-prompt-rewriting.md":
+        ("官方 Prompt Rewriting 一节", "两个 PE checkpoint、输入输出格式、接进管线的示例"),
+    "qwen-image-2.1-hf-modelcard.md":
+        ("HuggingFace 模型卡", "能力概览、官方宽高比档位、RGBA 推荐写法、许可"),
+}
+
+
+def _style_doc_path(name: str) -> Optional[str]:
+    for d in _STYLE_DOC_DIRS:
+        if not d:
+            continue
+        p = os.path.normpath(os.path.join(d, name))
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+@app.get("/v1/style-docs", response_class=HTMLResponse)
+async def style_doc_index(request: Request):
+    """一个极简索引页：从控制台点过来时能一眼看到有哪几份、缺哪几份。
+
+    **必须注册在 `/v1/style-docs/{name}` 之前**：Starlette 按注册顺序匹配，
+    先注册参数路由的话，裸路径 `/v1/style-docs` 会被它吃掉（name 取不到值）。
+    """
+    _check_auth(request)
+    items = []
+    for fn, (title, desc) in STYLE_DOCS.items():
+        p = _style_doc_path(fn)
+        if p:
+            size = os.path.getsize(p)
+            try:
+                with open(p, encoding="utf-8", errors="replace") as fh:
+                    lines = sum(1 for _ in fh)
+            except Exception:                                           # noqa: BLE001
+                lines = 0
+            items.append(
+                '<li><a href="/v1/style-docs/%s">%s</a> '
+                '<span style="color:#8b949e">%s · %d 行 / %.1f KB</span></li>'
+                % (quote(fn), title, desc, lines, size / 1024))
+        else:
+            items.append('<li><span style="color:#f85149">缺失：</span> %s <span '
+                         'style="color:#8b949e">%s</span></li>' % (title, fn))
+    return HTMLResponse(
+        "<!doctype html><meta charset='utf-8'><title>官方提示词方法论</title>"
+        "<body style='background:#0e1116;color:#e6edf3;font:14px/1.7 -apple-system,"
+        "&quot;Segoe UI&quot;,&quot;Microsoft YaHei&quot;,sans-serif;margin:32px'>"
+        "<h1 style='font-size:18px'>官方提示词方法论（PE system prompt）</h1>"
+        "<p style='color:#8b949e;font-size:13px'>本服务跑原始管线，不含 PE 改写层。"
+        "这几份是官方的写作规范原文，照着写就等于手工走一遍官方 PE。</p><ul>%s</ul>"
+        "<p style='color:#8b949e;font-size:12px'>文档放在 <code>service/ui/docs/</code>，"
+        "跟随常规部署载荷一起上实例；那是 <code>docs/upstream/</code> 里官方原文的副本，"
+        "缺文件时这里会标出来。</p></body>" % "".join(items))
+
+
+@app.get("/v1/style-docs/{name}")
+async def style_doc(name: str, request: Request):
+    """单个文档的原文。text/plain 直接内联打开，不做附件下载。
+
+    注册在索引路由之后（Starlette 按注册顺序匹配，裸路径必须先匹配到索引页）。
+    """
+    _check_auth(request)
+    if name not in STYLE_DOCS:
+        raise HTTPException(404, "未知文档：%s" % name)
+    p = _style_doc_path(name)
+    if not p:
+        raise HTTPException(404, "实例上没有这份文档（部署时缺少 docs/upstream/）：%s" % name)
+    return FileResponse(p, media_type="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": 'inline; filename="%s"' % name})
+
+
+# --------------------------------------------------------------------------- #
+# token 计数：控制台的实时计数与发送前拦截
+#
+# 用管线自己的 processor 分词（不是字数估算）。processor 很小，按需加载：
+# 实测 AutoProcessor.from_pretrained(<model_dir>/processor) 冷启动 0.44s，
+# 分词 1.5ms，所以不需要常驻，也不占主模型显存。
+#
+# 注意权重根目录不能直接 AutoProcessor.from_pretrained（缺 processing class 元数据），
+# 但 model_index.json 指明了 processor 是 transformers.Qwen3VLProcessor，
+# 它就在 <model_dir>/processor/ 子目录里。
+# --------------------------------------------------------------------------- #
+_PROC_CACHE: Dict[str, Any] = {"proc": None, "err": None}
+_PROC_LOCK = threading.Lock()
+
+
+def _get_processor():
+    """按需加载 Qwen3VLProcessor；失败时记住原因，返回 None。"""
+    if _PROC_CACHE["proc"] is not None:
+        return _PROC_CACHE["proc"]
+    with _PROC_LOCK:
+        if _PROC_CACHE["proc"] is not None:
+            return _PROC_CACHE["proc"]
+        if _PROC_CACHE["err"]:
+            return None
+        try:
+            from transformers import AutoProcessor
+            sub = os.path.join(MODEL_DIR, "processor")
+            path = sub if os.path.isdir(sub) else MODEL_DIR
+            _PROC_CACHE["proc"] = AutoProcessor.from_pretrained(path, trust_remote_code=True)
+        except Exception as exc:                                        # noqa: BLE001
+            _PROC_CACHE["err"] = "%s: %s" % (type(exc).__name__, exc)
+            print("[tokenize] processor 加载失败：", _PROC_CACHE["err"], flush=True)
+            return None
+        return _PROC_CACHE["proc"]
+
+
+def _vision_tokens(width: int, height: int):
+    """一张 width×height 参考图会占多少 vision token。
+
+    走和管线一样的处理器：patch token 数 ÷ merge_size² = <|image_pad|> 个数。
+    用同尺寸的灰图代替真图——token 数只由尺寸决定（实测 1024² → 4096 patch → 1024 token）。
+    """
+    proc = _get_processor()
+    if proc is None:
+        return None
+    try:
+        from PIL import Image as _Image
+        w = max(32, int(width or 1024))
+        h = max(32, int(height or 1024))
+        out = proc(images=[_Image.new("RGB", (w, h), (128, 128, 128))], return_tensors="pt")
+        t, hh, ww = [int(x) for x in out["image_grid_thw"][0].tolist()]
+        merge = int(getattr(proc.image_processor, "merge_size", 2) or 2)
+        return {"grid": [t, hh, ww], "patch_tokens": t * hh * ww,
+                "merge_size": merge, "vision_tokens": t * hh * ww // (merge * merge)}
+    except Exception as exc:                                            # noqa: BLE001
+        print("[tokenize] 视觉 token 估算失败：", type(exc).__name__, exc, flush=True)
+        return None
+
+
+def _prompt_templates():
+    """取管线自己的 system prompt 与两套模板。
+
+    不硬编码模板文本：它是管线属性（QwenImage21Pipeline.sys_prompt /
+    prompt_template_t2i / prompt_template_ti2i），硬编码会在升级管线后悄悄算错。
+    管线没加载好时退回一份仅用于计数的兜底文本——包装 token 数是固定开销，
+    估算误差只有几个 token。
+    """
+    # 管线是模块级全局 _pipe（get_pipe() 懒加载后写回）；未加载时用兜底模板。
+    # 这里不去触发 get_pipe()：它要读 8B 权重、30+ GB 显存，数 token 不该付这个代价。
+    pipe = globals().get("_pipe")
+    if pipe is not None:
+        try:
+            return (getattr(pipe, "sys_prompt", "") or "",
+                    getattr(pipe, "prompt_template_t2i", "{0}") or "{0}",
+                    getattr(pipe, "prompt_template_ti2i", "{0}") or "{0}")
+        except Exception:                                               # noqa: BLE001
+            pass
+    fallback = "<|im_start|>system\n{0}<|im_end|>\n<|im_start|>user\n{1}<|im_end|>\n<|im_start|>assistant\n"
+    return "Describe the image by detailing the color, shape, size, texture, quantity, text, spatial relationships of the objects and background:", fallback, fallback
+
+
+@app.post("/v1/tokenize")
+async def tokenize(request: Request):
+    """数一条 prompt 会占多少 token，并判断会不会撞上位置编码上限。
+
+    body（JSON）或 form 字段：
+
+    | 字段 | 说明 |
+    |---|---|
+    | `prompt` | 必填，要数的文本 |
+    | `width` / `height` | 可选，参考图尺寸；给了就一并算 vision token |
+    | `t2i` | 可选，`true` 时按文生图模板（默认按编辑模板，两者都带 22 token 的固定包装） |
+
+    返回 `over_limit` / `over_safe` 两个布尔值，控制台据此变色并拦发送。
+    这不是"官方上限"——官方文档没给过长度上限；9216 来自 diffusers 管线位置编码表的
+    实现细节 + 本机实测（见 docs/PROMPT-LENGTH-LIMIT.md）。
+    """
+    _check_auth(request)
+    ctype = (request.headers.get("content-type") or "").lower()
+    if ctype.startswith("multipart/form-data") or ctype.startswith(
+            "application/x-www-form-urlencoded"):
+        form = await request.form()
+        prompt = str(form.get("prompt") or "")
+        width = form.get("width")
+        height = form.get("height")
+        t2i = str(form.get("t2i") or "").lower() in ("1", "true", "on", "yes")
+    else:
+        body = await request.json()
+        prompt = str(body.get("prompt") or "")
+        width = body.get("width")
+        height = body.get("height")
+        t2i = bool(body.get("t2i"))
+
+    proc = _get_processor()
+    if proc is None:
+        raise HTTPException(503, "tokenizer 不可用：%s" % (_PROC_CACHE["err"] or "未知原因"))
+
+    tok = proc.tokenizer
+    sys_prompt, tpl_t2i, tpl_ti2i = _prompt_templates()
+    sys_prompt_tokens = len(tok.encode(sys_prompt, add_special_tokens=False))
+    instruction = len(tok.encode(prompt or " ", add_special_tokens=False))
+    tpl = tpl_t2i if t2i else tpl_ti2i
+    wrapped = len(tok.encode(tpl.format(prompt or " "), add_special_tokens=False))
+    overhead = wrapped - instruction
+
+    vis = None
+    if width and height:
+        try:
+            vis = _vision_tokens(int(width), int(height))
+        except Exception:                                               # noqa: BLE001
+            vis = None
+    vision_tokens = (vis or {}).get("vision_tokens") or 0
+
+    total = wrapped + vision_tokens
+    return {
+        "chars": len(prompt),
+        "instruction_tokens": instruction,
+        "template_overhead_tokens": overhead,
+        "wrapped_tokens": wrapped,
+        "sys_prompt_tokens": sys_prompt_tokens,
+        "vision_tokens": vision_tokens,
+        "vision_detail": vis,
+        "total_positions": total,
+        "max_positions": MAX_PROMPT_POSITIONS,
+        "safe_positions": PROMPT_SAFE_POSITIONS,
+        "over_limit": total > MAX_PROMPT_POSITIONS,
+        "over_safe": total > PROMPT_SAFE_POSITIONS,
+        "remaining": PROMPT_SAFE_POSITIONS - total,
+        "limit_source": "diffusers 管线 RoPE 表长 8192+1024，实测边界（非官方文档）",
+    }
 
 
 # --------------------------------------------------------------------------- #

@@ -203,6 +203,28 @@ python tools/autodl_ssh.py fwd <本地脚本.py>       # 起转发并跑脚本�
 | `qwen_report.py` | 跑表情专项 + 出综合 HTML 报告（含浏览器内手动对齐工具） |
 | `qwen_nsfw_test.py` | 姿势阶梯测试（露出度递增，用于定位模型的失效边界） |
 
+### Prompt 长度上限实测（`tools/`，2026-09-27）
+
+官方没有给过 prompt 长度上限。实测结论：**硬上限是 DiT 位置编码表的 9216 个位置，
+文本 token 与参考图的 vision token 共用这一份额**——纯文本约 9100 token（≈37k 字符）通过、
+9200 越界；带一张 1024² 参考图（1024 vision token）时文本预算掉到约 8100 token。
+越界不是干净报错，而是 CUDA gather 越界 assert **并把服务打停**，必须重启。
+服务端已据此加了 `POST /v1/tokenize` 与控制台的发送前拦截。
+
+完整数据、标定（1 token ≈ 4.075 字符）、复现命令见
+[`PROMPT-LENGTH-LIMIT.md`](PROMPT-LENGTH-LIMIT.md)。
+
+| 脚本 | 作用 |
+|---|---|
+| `probe_prompt_len.py` | 查配置位置上限 / 标定 token / 做长度扫描 |
+| `_calibrate_len.py` | 字符数 ↔ token 数对照表 |
+| `_len_boundary.py` | 逐档找边界；失败自动重启清 CUDA 上下文 |
+| `_len_withref.py` | 带参考图时的联合预算验证 |
+| `_tokenize_check.py` | 验 `/v1/tokenize` 的数值与管线直接分词逐位相等 |
+| `_svc_sanity.py` | 出图体检，跑长度实验前后当基线（上下文坏了时短 prompt 也会失败） |
+
+---
+
 ### CFG / 负面提示词配对实验（`remote/scripts/`，2026-09-27）
 
 一次专门用来判"负面提示词 + CFG 值不值得用"的实验。**结论是不值得**，

@@ -1,0 +1,20 @@
+[
+  {
+    "text_target_tokens": 7000,
+    "text_chars": 28545,
+    "ref_vision_tokens": 1024,
+    "http": 200,
+    "elapsed_s": 33.28,
+    "ok": true,
+    "png_bytes": 2518375
+  },
+  {
+    "text_target_tokens": 8300,
+    "text_chars": 33825,
+    "ref_vision_tokens": 1024,
+    "ok": false,
+    "elapsed_s": 118.79,
+    "error": "ConnectionError: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))",
+    "restarted": true
+  }
+]

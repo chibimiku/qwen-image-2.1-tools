@@ -103,6 +103,11 @@
               border:2px solid transparent;background:#0b0f14}
   .imgrid img.on{border-color:var(--accent)}
   .imgrid img:hover{border-color:var(--dim)}
+  /* 官方提示词方法论入口：锚点当按钮用。注意不要落在 .row 里——button{width:100%} 会把它们撑开 */
+  #docrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+  #docrow .doclab{font-size:12px;color:var(--dim);margin-right:2px}
+  #docrow a{padding:5px 10px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);color:var(--fg);text-decoration:none;font-size:12px;line-height:1.4;display:inline-flex;align-items:center}
+  #docrow a:hover{border-color:var(--accent);color:var(--accent)}
  .prog-note{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);
             color:#8b949e;font-size:12px;line-height:1.5}
  @media(max-width:640px){.prog-grid{grid-template-columns:auto 1fr}}
@@ -192,6 +197,25 @@
 
       <label>提示词 prompt</label>
       <textarea id="prompt" placeholder="A neon shop sign that reads &quot;QWEN 2.1&quot;, rainy night, reflections on wet pavement"></textarea>
+
+      <!-- 官方提示词方法论：服务跑的是原始管线，没有 PE 改写层，所以把官方的
+           system prompt 原文摆在手边，照着写 = 手工走一遍官方 PE。
+           链接指向 server.py 的 /v1/style-docs/*，新标签页内联打开，带 ?key= 以便未登录时也能开。 -->
+      <div id="docrow">
+        <span class="doclab">官方提示词方法论（不含 PE 改写层，照着写）</span>
+        <a id="docT2I" href="/v1/style-docs/prompt-rewriter-T2I-system-prompt.txt__QWEN_DOC_KEY__"
+           target="_blank" rel="noopener">文生图 T2I</a>
+        <a id="docI2I" href="/v1/style-docs/prompt-rewriter-I2I-system-prompt.txt__QWEN_DOC_KEY__"
+           target="_blank" rel="noopener">编辑 I2I</a>
+        <a id="docAll" href="/v1/style-docs__QWEN_DOC_KEY__" target="_blank" rel="noopener">全部文档</a>
+        <a id="docReadme" href="/v1/style-docs/qwen-image-2.1-prompt-rewriting.md__QWEN_DOC_KEY__"
+           target="_blank" rel="noopener">官方 README 节选</a>
+      </div>
+
+      <!-- 实时 token 计数：数值来自服务端 /v1/tokenize（用管线自己的 tokenizer 数，
+           不是字数估算）。超过安全线变色并拦发送——越界会让 CUDA 上下文崩掉、
+           整台服务要重启，所以宁可在发送前拦住。 -->
+      <div id="tokline" class="kbd" style="margin-top:6px"></div>
 
       <details id="bwrap" style="margin-top:10px">
         <summary style="cursor:pointer;color:var(--dim);font-size:12px">
@@ -906,6 +930,62 @@ async function refSizeHint(){
     mp.toFixed(2) + 'MP）' + cap + '</span>';
 }
 
+/* ── 实时 token 计数 ──────────────────────────────────────────────────────
+   服务端 /v1/tokenize 用管线自己的 tokenizer 数，并连带算参考图的 vision token。
+   为什么值得做：越界（合计 > 9216 位置）不是干净报错，而是 CUDA gather 越界 assert，
+   会把上下文弄坏、**之后连 /health 都 500，必须重启服务**。所以发送前就要拦住。
+   实测（docs/PROMPT-LENGTH-LIMIT.md）：纯文本约 9100 token 通过、9200 挂；
+   带一张 1024² 参考图（1024 vision token）时文本预算掉到约 8100。 */
+let _tokTimer = null, _tokSeq = 0, TOK = null;
+
+async function requestTokenize(prompt, wh, t2i){
+  const body = {prompt: prompt, t2i: !!t2i};
+  if (wh){ body.width = wh[0]; body.height = wh[1]; }
+  const r = await fetch(api('/v1/tokenize'),
+    {method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
+     body: JSON.stringify(body)});
+  if (!r.ok) throw new Error('tokenize ' + r.status);
+  return await r.json();
+}
+
+function renderTok(d, pending){
+  const el = $('tokline');
+  if (!el) return;
+  if (!d){ el.innerHTML = pending ? '<span class="chiphint">数 token…</span>' : ''; return; }
+  const parts = ['<b>' + d.total_positions + '</b> / ' + d.max_positions + ' 位置'];
+  parts.push('文本 ' + d.wrapped_tokens);
+  if (d.vision_tokens) parts.push('参考图 ' + d.vision_tokens);
+  const over = d.over_limit, near = !over && d.over_safe;
+  const color = over ? 'var(--bad)' : (near ? 'var(--warn)' : 'var(--dim)');
+  let tail = '';
+  if (over) tail = ' · <span style="color:var(--bad)">超上限，会打停服务——请缩短 prompt 或减少/缩小参考图</span>';
+  else if (near) tail = ' · <span style="color:var(--warn)">已超安全线，建议留余量</span>';
+  else tail = ' · 余量 ' + d.remaining;
+  el.innerHTML = '<span class="chiphint" style="color:' + color + '">' + parts.join(' · ') +
+                 tail + '</span>';
+}
+
+/* prompt / 参考图变化后延迟 350ms 再问服务端，避免每敲一个字发一次请求 */
+function scheduleTokenize(){
+  if (_tokTimer) clearTimeout(_tokTimer);
+  const prompt = $('prompt') ? $('prompt').value : '';
+  if (!prompt.trim()){ renderTok(null, false); TOK = null; return; }
+  renderTok(null, true);
+  _tokTimer = setTimeout(async () => {
+    const seq = ++_tokSeq;
+    try {
+      const info = await refRatio();          // 取最后一张参考图的尺寸（比例由它决定）
+      const wh = info ? [info.w, info.h] : null;
+      const d = await requestTokenize(prompt, wh, mode === 't2i');
+      if (seq !== _tokSeq) return;            // 期间又改了，丢弃过期结果
+      TOK = d;
+      renderTok(d, false);
+    } catch (err){
+      if (seq === _tokSeq){ TOK = null; renderTok(null, false); }
+    }
+  }, 350);
+}
+
 function syncRatio(){
   const sel = $('ratio'), w = $('width'), h = $('height'), note = $('rationote');
   if (!sel || !w || !h) return;
@@ -1030,7 +1110,8 @@ async function refreshSessionBar(){
 /* ---------------------------------------------------------------- 日志 */
 function log(msg, kind){
   const t = new Date().toLocaleTimeString();
-  const color = kind === 'err' ? 'var(--bad)' : kind === 'ok' ? 'var(--good)' : '#9aa4b2';
+  const color = kind === 'err' ? 'var(--bad)' : kind === 'ok' ? 'var(--good)'
+              : kind === 'warn' ? 'var(--warn)' : '#9aa4b2';
   $('log').innerHTML += `<div style="color:${color}">[${t}] ${msg}</div>`;
   $('log').scrollTop = 1e9;
 }
@@ -1067,6 +1148,7 @@ function setMode(m){
   }
   syncRatio();
   syncFollowRef();
+  scheduleTokenize();     // 两个 tab 的模板不同，固定开销也不同，切了要重算
   refSizeHint();
   refreshFitTable();   // 换模式后档位提示要跟着变（编辑与文生图的答案不同）
 }
@@ -1433,6 +1515,8 @@ if ($('followref')) $('followref').addEventListener('change', () => {
   syncFollowRef(); refSizeHint(); saveForm();
 });
 if ($('outres')) $('outres').addEventListener('change', () => refSizeHint());
+// prompt 一改就重算 token（内部有 350ms 防抖）；切 tab 时模板不同也要重算
+if ($('prompt')) $('prompt').addEventListener('input', scheduleTokenize);
 ['cfgscale','negative'].forEach(id => {
   const el = $(id);
   if (el) el.addEventListener('input', syncCfgNote);
@@ -1473,6 +1557,7 @@ function renderThumbs(){
   }
   note.innerHTML = txt;
   refSizeHint();
+  scheduleTokenize();      // 参考图变了，vision token 与合计都要重算
 }
 /* 官方多参考图约定：按上传顺序叫 <image1> <image2> ...（见 pipeline prompt_template_ti2i
    自动注入的占位符，以及官方 prompt_rewrite edit_example 的 <image1>/<image2> 写法）。 */
@@ -1571,6 +1656,28 @@ async function run(){
   if (!p.prompt){ log('提示词不能为空', 'err'); return; }
   if (mode === 'edit' && files.length === 0){ log('编辑模式至少要一张参考图', 'err'); return; }
   if (!AUTHED && AUTH_REQUIRED){ log('还没登录：请在弹出的登录框里填入 API Key', 'err'); showLogin(); return; }
+
+  // 发送前拦一道长度：越界不是干净报错，而是 CUDA assert + 上下文损坏 + 必须重启服务。
+  // 这里重新问一次服务端（不信缓存，避免用户刚粘贴完就点生成），失败就不拦（宁可让服务端报错）。
+  try {
+    const info = await refRatio();
+    const wh = info ? [info.w, info.h] : null;
+    const d = await requestTokenize(p.prompt, wh, mode === 't2i');
+    TOK = d; renderTok(d, false);
+    if (d.over_limit){
+      log(`prompt 太长：${d.total_positions} / ${d.max_positions} 位置` +
+          (d.vision_tokens ? `（含参考图 ${d.vision_tokens}）` : '') +
+          '。超出会让模型位置编码越界并打停服务，已拦下——请缩短提示词或减少/缩小参考图。', 'err');
+      return;
+    }
+    if (d.over_safe && !confirm(`prompt 偏长：${d.total_positions} / ${d.max_positions} 位置。\n` +
+                                `安全线是 ${d.safe_positions}，越界会让服务崩溃并需要重启。\n仍要继续吗？`)){
+      log('已取消发送（长度确认）', 'warn');
+      return;
+    }
+  } catch (err){
+    log('长度预检没成功，直接发送（服务端仍有兜底）：' + err.message, 'warn');
+  }
 
   busy = true;
   const btn = $('run');
