@@ -600,7 +600,101 @@ curl -s -X POST "$BASE/v1/images/generations" -H "Authorization: Bearer $KEY" \
 - 文生图不受影响：它的已知可用阈值覆盖全部官方 2K 档位（实测 7/7 通过），不会被动。
 - `QWEN_AUTO_FIT=0` 可关掉自动缩，恢复成"直接 507 拒绝"。
 
-### 3.10 会话（Cookie 登录，控制台用）
+### 3.10 官方提示词方法论（控制台按钮指向这里）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/v1/style-docs` | 索引页（HTML），列出有哪几份官方文档、缺哪几份 |
+| GET | `/v1/style-docs/{name}` | 单份原文，`text/plain` 内联打开；`name` 只认白名单 |
+
+白名单（`server.py` 的 `STYLE_DOCS`）：
+
+| name | 内容 |
+|---|---|
+| `prompt-rewriter-T2I-system-prompt.txt` | `Qwen-Image-2.1-PE-T2I` 的 system prompt（八步法） |
+| `prompt-rewriter-I2I-system-prompt.txt` | `Qwen-Image-2.1-PE-I2I` 的 system prompt（含 Attribute Disentanglement） |
+| `qwen-image-2.1-prompt-rewriting.md` | 官方 README「Prompt Rewriting」一节 + 与本服务的关系 |
+| `qwen-image-2.1-hf-modelcard.md` | HF 模型卡 |
+
+三点要注意：
+
+1. **这不是官方提示词模板**。官方给的是两个改写模型，不是可套用的模板；这里摆的是那两个
+   checkpoint 的 system prompt，用途是"当写作规范照抄"。本服务跑原始管线，**不含 PE 改写层**，
+   prompt 进来直接编码，不会被自动改写。
+2. **文件是副本**：来源 `docs/upstream/`，复制到 `service/ui/docs/`，这样它跟随 `service/**`
+   的常规部署载荷上实例，不必给仓库根的 `docs/` 单开传输规则。漂移检查：
+   `python tools\deploy_style_docs.py --check-sync`。
+3. **鉴权照旧**：这两条路由在 `/v1/*` 之下，走同一个守卫。
+   控制台渲染时服务端把页面里的 `__QWEN_DOC_KEY__` 换成 `?key=<主 key>`，
+   所以未登录点开也不会 401；已登录时本来就有会话 Cookie。路径不拼用户输入。
+
+```bash
+curl "$BASE/v1/style-docs" -H "Authorization: Bearer $KEY"
+curl "$BASE/v1/style-docs/prompt-rewriter-T2I-system-prompt.txt" -H "Authorization: Bearer $KEY"
+curl "$BASE/v1/style-docs?key=$KEY"     # 浏览器直接开也能用这种带法
+```
+
+### 3.11 prompt token 计数与长度预算
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/v1/tokenize` | 数一条 prompt 会占多少 token，并判断会不会撞上位置编码上限 |
+
+用管线自己的 tokenizer 分词（不是字数估算）。processor 按需加载（冷启动 0.44s，分词 1.5ms），
+不常驻、不占主模型显存。
+
+请求（JSON 或 form 字段）：
+
+| 字段 | 说明 |
+|---|---|
+| `prompt` | 必填 |
+| `width` / `height` | 可选；给了就一并算参考图的 vision token |
+| `t2i` | 可选；`true` 按文生图模板，默认按编辑模板 |
+
+```bash
+curl -s "$BASE/v1/tokenize" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"prompt":"a red teapot on a wooden table","width":1024,"height":1024,"t2i":true}'
+```
+
+```json
+{
+  "chars": 30,
+  "instruction_tokens": 8,
+  "template_overhead_tokens": 22,
+  "wrapped_tokens": 30,
+  "sys_prompt_tokens": 9,
+  "vision_tokens": 1024,
+  "vision_detail": {"grid": [1, 64, 64], "patch_tokens": 4096, "merge_size": 2,
+                    "vision_tokens": 1024},
+  "total_positions": 1054,
+  "max_positions": 9216,
+  "safe_positions": 9000,
+  "over_limit": false,
+  "over_safe": false,
+  "remaining": 7946,
+  "limit_source": "diffusers 管线 RoPE 表长 8192+1024，实测边界（非官方文档）"
+}
+```
+
+**上限从哪来的**：官方文档**没有**给过 prompt 长度上限。9216 来自 diffusers 管线的
+位置编码表（`pos_index = arange(8192)` + `neg_index` 1024 条），本机实测边界为
+纯文本 ~9100 token 通过 / 9200 越界；带一张 1024² 参考图（1024 vision token）时文本预算
+掉到约 8100。**文本 token 与 vision token 共用这一份名额。**
+完整数据见 [`PROMPT-LENGTH-LIMIT.md`](PROMPT-LENGTH-LIMIT.md)。
+
+⚠️ **越界不是干净报错**：会触发 `vectorized_gather_kernel: index out of bounds` 的
+CUDA assert，**并且把 CUDA 上下文弄坏**——之后任何请求都 500（连免鉴权的 `/health` 也是），
+显存不放，必须重启服务。控制台已据此在发送前拦截；脚本调用方请自己按
+`over_limit` / `over_safe` 判断。
+
+环境变量（默认值即实测值，一般不用改）：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `QWEN_MAX_PROMPT_POSITIONS` | `9216` | 硬上限（位置数） |
+| `QWEN_SAFE_PROMPT_POSITIONS` | `9000` | 安全线，超过就提示 |
+
+### 3.12 会话（Cookie 登录，控制台用）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -620,7 +714,7 @@ POST /v1/session 正确 key    -> 200  HttpOnly / SameSite=strict / Secure / Max
 DELETE /v1/session           -> 200        退出后带旧 Cookie -> 401（服务端确实销毁了）
 ```
 
-### 3.11 错误码
+### 3.13 错误码
 | 码 | 含义 |
 |---|---|
 | 400 | 参数错误（prompt 缺失、size 格式错） |

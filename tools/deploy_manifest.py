@@ -18,6 +18,10 @@
   1. `service/<x>.py`、`service/ui/<x>`      → `<root>/service/<x>`
   2. `service/scripts/<x>`                    → `<root>/scripts/<x>`
   3. `service/scripts/qwen_env.sh`            → `<root>/qwen_env.sh`   （唯一提级）
+
+控制台上的「官方提示词方法论」按钮读的是 `service/ui/docs/` —— 刻意放在 ui/ 里面，
+这样它就跟着 `service/` 的常规部署载荷一起走，不用给 `docs/` 单开一条传输规则。
+那几份是 `docs/upstream/` 里官方原文的副本，见 `service/ui/docs/README.md`。
 """
 from __future__ import annotations
 

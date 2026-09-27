@@ -5,6 +5,43 @@
 > Diffusers `QwenImage21Pipeline` 核对，不靠印象
 > 结论：主流程参数与官方示例对齐；管线支持但官方不推荐为默认的参数已收进“高级实验设置”
 
+## 〇、官方提示词方法论的入口（2026-09-27 追加）prompt 输入框下面是 `#docrow` 一排按钮，指向 `server.py` 的 `/v1/style-docs*`：
+
+| 按钮 | 目标 | 内容 |
+|---|---|---|
+| 文生图 T2I | `/v1/style-docs/prompt-rewriter-T2I-system-prompt.txt` | Qwen-Image-2.1-PE-T2I 的 system prompt（八步法，192 行） |
+| 编辑 I2I | `/v1/style-docs/prompt-rewriter-I2I-system-prompt.txt` | Qwen-Image-2.1-PE-I2I 的 system prompt（含 Attribute Disentanglement，205 行） |
+| 全部文档 | `/v1/style-docs` | 索引页，列出有哪几份、缺哪几份 |
+| 官方 README 节选 | `/v1/style-docs/qwen-image-2.1-prompt-rewriting.md` | Prompt Rewriting 一节 + 与本服务的关系 |
+
+四个判定要点，防止后来人误读：
+
+1. **这不是"官方提示词模板"**。官方没有给可套用的模板，给的是两个改写模型
+   （`Qwen-Image-2.1-PE-T2I` / `-PE-I2I`）。摆出来的是这两个模型的 system prompt。
+2. **本服务不含 PE 层**。跑的是 `QwenImage21Pipeline` 原始管线，prompt 进来直接编码，
+   不会自动改写。这几个文件的用法是"当写作规范照抄"。
+3. **文件是副本，不是软链**。来源 `docs/upstream/`，复制到 `service/ui/docs/` 是为了
+   跟随 `service/**` 的常规部署载荷；漂移检查 `python tools\deploy_style_docs.py --check-sync`。
+4. **鉴权沿用既有守卫**。`/v1/style-docs*` 在 `/v1/*` 之下，三种带法照旧；页面渲染时
+   服务端把 `__QWEN_DOC_KEY__` 替换成 `?key=<主 key>`，因此未登录点开也不会 401，
+   已登录时本来就有会话 Cookie。路径只认 `STYLE_DOCS` 白名单里的文件名，用户输入不拼路径。
+
+### 〇.2 实时 token 计数（`#tokline`，2026-09-27 追加）
+
+prompt 输入框下面那行 `#tokline` 显示 `合计 / 9216 位置 · 文本 N · 参考图 M · 余量 K`，
+数值来自 `POST /v1/tokenize`（见 [API.md](API.md) §3.11）。三条设计决定：
+
+1. **数 token 用管线自己的 tokenizer，不用字数估算**。processor 按需加载
+   （`<model_dir>/processor/`，冷启动 0.44s、分词 1.5ms），不常驻、不占显存。
+   实测与管线直接分词的结果**逐位相等**（含中文、含模板包装）。
+2. **两种模板分开算**：文生图与编辑的包装不同（短句实测 22 vs 29 token 的固定开销），
+   切 tab 会重算。模板取自管线属性 `sys_prompt / prompt_template_t2i / prompt_template_ti2i`，
+   不硬编码——硬编码会在升级管线后悄悄算错。
+3. **发送前拦一道**：`run()` 里重新问一次服务端（不吃缓存），`over_limit` 直接拒绝发送，
+   `over_safe` 弹确认。**理由不是体验而是稳定性**：越界会触发 CUDA gather 越界 assert
+   并把上下文弄坏，之后连 `/health` 都 500，**必须重启服务**。
+   计数接口本身失败时不拦（宁可让服务端报错，也不要因为计数坏了发不出图）。
+
 ## 一、参数选项核查
 
 | # | UI 选项 | UI 写的默认/范围 | 服务端实际 | 判定 |
