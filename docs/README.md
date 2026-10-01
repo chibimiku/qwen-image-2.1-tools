@@ -237,8 +237,17 @@ python tools/autodl_ssh.py fwd <本地脚本.py>       # 起转发并跑脚本�
 
 完整结果、逐画风最佳方案、泄露率、跨 seed 稳定性、已验证 vs 推断、最小移植方案见
 [`EXPERIMENT-style-migration-RESULTS.md`](EXPERIMENT-style-migration-RESULTS.md)。
-原始产物（出图、逐任务请求、评分表、画廊、对照图）在实验包内，
-**不纳入版本控制**，索引见该文第 13 节；归档快照在实验包的 `dist/` 下。
+**逐图评分与其汇总已随该文进仓库** —— `exp/style-reference-migration-20260927/analysis/`
+下的 `scores.csv`（300 行）、`errors.csv`（217 行）、`evidence-codes.md`、`summary.json`、
+`ratings-filled.csv`、`ratings-template.csv`，以及 `exec/anime/` 下的三份；
+出图 PNG、画廊 HTML、逐任务记录与归档快照不纳入版本控制，索引见该文第 13 节。
+
+| 脚本 | 作用 |
+|---|---|
+| `tools/verify_scoring_files.py` | 校验这些入库的评分文件：行数、列、四维分无空缺 |
+| `tools/verify_experiment_summary.py` | 拿 `scores.csv` 现算复核文档里的每个数字 |
+| `tools/verify_exp_artifacts.py` | 盘点结论类文本与大体积产物各有多少 |
+| `tools/verify_exp_dist_snapshot.py` | 活包与 `dist/` 解包快照逐文件 md5 比对 |
 
 ---
 

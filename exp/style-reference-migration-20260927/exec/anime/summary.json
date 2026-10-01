@@ -1,0 +1,82 @@
+{
+  "fuzichoco-v2|P": {
+    "n": 3,
+    "style": 3.67,
+    "content": 1.67,
+    "leakage": 4.0,
+    "quality": 4.0,
+    "acceptable": 0
+  },
+  "fuzichoco-v2|T": {
+    "n": 3,
+    "style": 3.0,
+    "content": 3.67,
+    "leakage": 1.33,
+    "quality": 4.0,
+    "acceptable": 2
+  },
+  "renian|P": {
+    "n": 3,
+    "style": 4.0,
+    "content": 4.67,
+    "leakage": 2.0,
+    "quality": 5.0,
+    "acceptable": 1
+  },
+  "renian|T": {
+    "n": 3,
+    "style": 2.67,
+    "content": 5.0,
+    "leakage": 0.0,
+    "quality": 4.67,
+    "acceptable": 3
+  },
+  "sakurapion-style|P": {
+    "n": 3,
+    "style": 1.0,
+    "content": 5.0,
+    "leakage": 0.0,
+    "quality": 4.33,
+    "acceptable": 3
+  },
+  "sakurapion-style|T": {
+    "n": 3,
+    "style": 1.0,
+    "content": 5.0,
+    "leakage": 0.0,
+    "quality": 4.33,
+    "acceptable": 3
+  },
+  "tinkle-style|P": {
+    "n": 3,
+    "style": 2.33,
+    "content": 5.0,
+    "leakage": 0.33,
+    "quality": 4.0,
+    "acceptable": 3
+  },
+  "tinkle-style|T": {
+    "n": 3,
+    "style": 2.0,
+    "content": 5.0,
+    "leakage": 0.0,
+    "quality": 4.0,
+    "acceptable": 3
+  },
+  "waterink-style|P": {
+    "n": 3,
+    "style": 3.33,
+    "content": 3.33,
+    "leakage": 1.67,
+    "quality": 4.0,
+    "acceptable": 1
+  },
+  "waterink-style|T": {
+    "n": 3,
+    "style": 3.33,
+    "content": 3.0,
+    "leakage": 1.33,
+    "quality": 4.0,
+    "acceptable": 1
+  }
+}

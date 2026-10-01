@@ -4,9 +4,22 @@
 本文是**实测结果与结论**：330 张真实出图的逐图评分、跨 seed 稳定性、内容泄露率，
 以及据此给出的最小移植方案。
 
-> 原始产物（出图、逐任务请求/响应、评分表、画廊、对照图）在
-> `exp/style-reference-migration-20260927/`，**不纳入版本控制**（体积约 1.5 GiB）。
-> 本文把可独立成立的结论带进仓库；要看图或复核请用那包。
+> 原始产物在 `exp/style-reference-migration-20260927/`，**绝大部分不纳入版本控制**
+> （体积约 3 GiB）。例外是**逐图评分与其汇总** —— 它们能脱离图片独立阅读，
+> 已随本文一起进仓库：
+>
+> | 已入库 | 内容 |
+> |---|---|
+> | `analysis/scores.csv` | 300 行逐图评分：四维分 + 证据 + 实际 seed/尺寸/耗时 |
+> | `analysis/errors.csv` | 217 行逐图问题：泄露≥3 / 服装 / 发色瞳色 / 场景 |
+> | `analysis/evidence-codes.md` | 证据代码表：每个分数背后的可见观察 |
+> | `analysis/summary.json` | 聚合数字（分组均值、泄露率、跨 seed 稳定性） |
+> | `analysis/ratings-filled.csv`、`ratings-template.csv` | 模板列版本 / 空白模板 |
+> | `exec/anime/scores.csv` | anime 探针 30 行评分 |
+> | `exec/anime/ratings-anime.json`、`summary.json` | 该探针的证据与汇总 |
+>
+> 仍未入库：出图 PNG、`gallery.html`（引用图片）、对照接触表、`jobs/` 逐任务记录、
+> `runs/` 运行日志、归档快照。白名单规则见仓库根的 `.gitignore`。
 
 **一句话结论：参考图与样式文字本身几乎不传递画风；真正把画风推起来的是
 「参考图 + 角色说明 + 样式词」的 D/E/F 这一档，但同一条线也是泄露开关 ——
@@ -295,19 +308,22 @@ python exec\make_report.py                                    # REPORT.md
 复现需要项目现有的连接方式（`tools/autodl_new.env` + SSH 隧道 + `tools/.qwenkey`）；
 密钥不落盘、不打印。
 
-**原始产物索引**（都在实验包内，未纳入版本控制）
+**原始产物索引**（都在实验包内；标 ✅ 的已随本文进仓库，其余只在本地）
 
-| 想看什么 | 路径 |
-|---|---|
-| 完整报告（本文件的扩展版，含全部表格） | `analysis/REPORT.md` |
-| 逐图评分（300 行，四维 + 证据 + 实际 seed/尺寸/耗时） | `analysis/scores.csv` |
-| 逐图错误表 | `analysis/errors.csv` |
-| 分组画廊（按画风/主题/seed × 组排列） | `analysis/gallery.html` |
-| 证据代码表 | `analysis/evidence-codes.md` |
-| 每张的精确请求体、响应元数据、出图 | `jobs/<id>/`、`outputs/` |
-| 部署与参数快照、续跑日志 | `runs/run-*/` |
-| anime 探针（总览/画廊/评分） | `exec/anime/SUMMARY.md`、`gallery.html`、`scores.csv` |
-| 归档快照（打包那一刻的完整副本） | `dist/style-reference-migration-20260927/` |
+| 想看什么 | 路径 | 入库 |
+|---|---|---|
+| 逐图评分（300 行，四维 + 证据 + 实际 seed/尺寸/耗时） | `analysis/scores.csv` | ✅ |
+| 逐图错误表 | `analysis/errors.csv` | ✅ |
+| 证据代码表 | `analysis/evidence-codes.md` | ✅ |
+| 聚合数字（分组均值/泄露率/跨 seed 稳定性） | `analysis/summary.json` | ✅ |
+| 模板列版本 / 空白模板 | `analysis/ratings-filled.csv`、`ratings-template.csv` | ✅ |
+| anime 探针评分与汇总 | `exec/anime/scores.csv`、`ratings-anime.json`、`summary.json` | ✅ |
+| 完整报告（本文的扩展版，含全部表格） | `analysis/REPORT.md` | — |
+| 分组画廊（按画风/主题/seed × 组排列） | `analysis/gallery.html` | — |
+| 每张的精确请求体、响应元数据、出图 | `jobs/<id>/`、`outputs/` | — |
+| 部署与参数快照、续跑日志 | `runs/run-*/` | — |
+| anime 探针总览与画廊 | `exec/anime/SUMMARY.md`、`gallery.html` | — |
+| 归档快照（打包那一刻的完整副本） | `dist/style-reference-migration-20260927/` | — |
 
 产物清单与 sha256 见实验包的 `MANIFEST-FILES.csv`（2618 行，覆盖 5237 个文件中的归档部分）。
 

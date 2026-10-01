@@ -28,6 +28,32 @@ tmp_ab/
 # 这里的图只用于当次判图，没必要进仓库
 exp/
 
+# ── 例外：参考图+样式迁移实验里"是可读结论、不是图片"的那几个文件要进仓库 ──
+# 出图（300 张，约 600 MiB）、画廊 HTML（引用了图）、zip/解包归档、对照表 PNG
+# 仍然排除；只放逐图评分与其汇总，因为它们能脱离图片独立阅读与复核。
+!exp/
+exp/*
+!exp/style-reference-migration-20260927/
+exp/style-reference-migration-20260927/*
+!exp/style-reference-migration-20260927/analysis/
+exp/style-reference-migration-20260927/analysis/*
+!exp/style-reference-migration-20260927/analysis/scores.csv
+!exp/style-reference-migration-20260927/analysis/errors.csv
+!exp/style-reference-migration-20260927/analysis/evidence-codes.md
+!exp/style-reference-migration-20260927/analysis/ratings-template.csv
+!exp/style-reference-migration-20260927/analysis/ratings-filled.csv
+!exp/style-reference-migration-20260927/analysis/summary.json
+# anime 探针的逐图评分同样入库
+# 注意：git 不会进入被排除的**目录**里找反排除的文件，所以目录本身也要先 !，
+# 再排除其内容，最后反排除具体文件（三层，缺一层就静默不生效）。
+!exp/style-reference-migration-20260927/exec/
+exp/style-reference-migration-20260927/exec/*
+!exp/style-reference-migration-20260927/exec/anime/
+exp/style-reference-migration-20260927/exec/anime/*
+!exp/style-reference-migration-20260927/exec/anime/scores.csv
+!exp/style-reference-migration-20260927/exec/anime/ratings-anime.json
+!exp/style-reference-migration-20260927/exec/anime/summary.json
+
 # prompt 长度实测的探针产物（tools/probe_prompt_len.py 等生成）：
 # 图不进仓库，小的结果文件（*.json / *.txt）留着当证据
 tools/_promptlen/*.png

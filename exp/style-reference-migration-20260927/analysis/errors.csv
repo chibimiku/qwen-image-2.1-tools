@@ -1,0 +1,218 @@
+id,style,subject,mode,seed,issue,detail
+waterink-style__harbor__D_ref_long__42,waterink-style,harbor,D_ref_long,42,scene,harbour re-imagined as a Japanese mountain port; bicycle reduced to the frame edge
+waterink-style__cafe__B_text_short__42,waterink-style,cafe,B_text_short,42,scene,"cafe furniture reduced, the cat sits apart from the table"
+waterink-style__cafe__D_ref_long__42,waterink-style,cafe,D_ref_long,42,hair/eye,soft/chibi facial rendering
+waterink-style__cafe__D_ref_long__42,waterink-style,cafe,D_ref_long,42,scene,cafe chair/room replaced by a water-ink landscape with blossom branch
+waterink-style__cafe__D_ref_long__1234,waterink-style,cafe,D_ref_long,1234,leakage>=3,man and cat moved into a mountain ink-wash landscape; cafe furniture gone
+waterink-style__cafe__D_ref_long__20260927,waterink-style,cafe,D_ref_long,20260927,leakage>=3,man and cat moved into a mountain ink-wash landscape; cafe furniture gone
+waterink-style__cafe__E_ref_short__42,waterink-style,cafe,E_ref_short,42,scene,cafe interior replaced by a mountain ink-wash backdrop
+waterink-style__cafe__E_ref_short__1234,waterink-style,cafe,E_ref_short,1234,leakage>=3,same mountain backdrop with blossom branch; man and cat kept small
+waterink-style__cafe__E_ref_short__20260927,waterink-style,cafe,E_ref_short,20260927,leakage>=3,same mountain backdrop with blossom branch; man and cat kept small
+waterink-style__still_life__A_content_only__42,waterink-style,still_life,A_content_only,42,hair/eye,n/a (no person requested)
+waterink-style__still_life__A_content_only__42,waterink-style,still_life,A_content_only,42,outfit,n/a (no person requested)
+waterink-style__still_life__B_text_short__42,waterink-style,still_life,B_text_short,42,hair/eye,n/a (no person requested)
+waterink-style__still_life__B_text_short__42,waterink-style,still_life,B_text_short,42,outfit,n/a (no person requested)
+waterink-style__still_life__B_text_short__42,waterink-style,still_life,B_text_short,42,scene,painted table edge replaces the clean windowsill
+waterink-style__still_life__C_ref_only__42,waterink-style,still_life,C_ref_only,42,hair/eye,n/a (no person requested)
+waterink-style__still_life__C_ref_only__42,waterink-style,still_life,C_ref_only,42,outfit,n/a (no person requested)
+waterink-style__still_life__D_ref_long__42,waterink-style,still_life,D_ref_long,42,hair/eye,n/a (no person requested)
+waterink-style__still_life__D_ref_long__42,waterink-style,still_life,D_ref_long,42,outfit,n/a (no person requested)
+waterink-style__still_life__D_ref_long__42,waterink-style,still_life,D_ref_long,42,scene,a robed woman seated at the table violates the explicit no-person instruction
+waterink-style__still_life__D_ref_long__42,waterink-style,still_life,D_ref_long,42,leakage>=3,
+waterink-style__still_life__D_ref_long__1234,waterink-style,still_life,D_ref_long,1234,leakage>=3,a robed woman seated at the table breaks the explicit no-person instruction
+waterink-style__still_life__D_ref_long__20260927,waterink-style,still_life,D_ref_long,20260927,leakage>=3,ink-wash landscape with the teapot on the sill and a faint figure
+waterink-style__still_life__E_ref_short__42,waterink-style,still_life,E_ref_short,42,hair/eye,n/a (no person requested)
+waterink-style__still_life__E_ref_short__42,waterink-style,still_life,E_ref_short,42,outfit,n/a (no person requested)
+waterink-style__still_life__F_ref_priority__42,waterink-style,still_life,F_ref_priority,42,hair/eye,n/a (no person requested)
+waterink-style__still_life__F_ref_priority__42,waterink-style,still_life,F_ref_priority,42,outfit,n/a (no person requested)
+waterink-style__still_life__F_ref_priority__42,waterink-style,still_life,F_ref_priority,42,scene,a pale seated figure appears behind the table
+waterink-style__still_life__F_ref_priority__1234,waterink-style,still_life,F_ref_priority,1234,leakage>=3,a robed woman appears behind the table again
+waterink-style__still_life__F_ref_priority__20260927,waterink-style,still_life,F_ref_priority,20260927,leakage>=3,a robed woman appears behind the table again
+waterink-style__dual__G_dual_content_only__1234,waterink-style,dual,G_dual_content_only,1234,outfit,lace dress simplified
+waterink-style__dual__G_dual_content_only__1234,waterink-style,dual,G_dual_content_only,1234,scene,interior reads darker/bluer than the content image
+waterink-style__dual__H_dual_style_priority__42,waterink-style,dual,H_dual_style_priority,42,outfit,dress simplified into a wash silhouette
+waterink-style__dual__H_dual_style_priority__1234,waterink-style,dual,H_dual_style_priority,1234,outfit,dress rendered as wash shapes
+waterink-style__dual__H_dual_style_priority__20260927,waterink-style,dual,H_dual_style_priority,20260927,hair/eye,hair becomes the reference-style long dark mane
+waterink-style__dual__H_dual_style_priority__20260927,waterink-style,dual,H_dual_style_priority,20260927,outfit,lace dress becomes an ink-wash robe
+waterink-style__dual__H_dual_style_priority__20260927,waterink-style,dual,H_dual_style_priority,20260927,scene,blue interior replaced by the reference's mountain landscape
+sakurapion-style__harbor__D_ref_long__42,sakurapion-style,harbor,D_ref_long,42,hair/eye,blue long hair instead of chestnut bob
+sakurapion-style__harbor__D_ref_long__42,sakurapion-style,harbor,D_ref_long,42,outfit,frilled bikini-style costume instead of yellow raincoat
+sakurapion-style__harbor__D_ref_long__42,sakurapion-style,harbor,D_ref_long,42,scene,beach/parfait scene instead of the harbor
+sakurapion-style__harbor__D_ref_long__42,sakurapion-style,harbor,D_ref_long,42,leakage>=3,"Near-verbatim reproduction of the reference subject: tropical flowers, the fruit parfait on a tray, the penguin mascot, the frilled outfit and the long blue-haired figure. The requested port, bicycle, lighthouse, yellow "
+sakurapion-style__harbor__D_ref_long__1234,sakurapion-style,harbor,D_ref_long,1234,leakage>=3,the reference's tropical parfait and blue-haired figure absorb the harbour scene
+sakurapion-style__harbor__D_ref_long__20260927,sakurapion-style,harbor,D_ref_long,20260927,leakage>=3,the reference's tropical parfait and blue-haired figure absorb the harbour scene
+sakurapion-style__cafe__D_ref_long__42,sakurapion-style,cafe,D_ref_long,42,scene,tropical flowers and the fruit parfait replace the cafe set dressing
+sakurapion-style__cafe__D_ref_long__42,sakurapion-style,cafe,D_ref_long,42,leakage>=3,
+sakurapion-style__cafe__D_ref_long__1234,sakurapion-style,cafe,D_ref_long,1234,leakage>=3,the reference girl and her parfait replace the requested man as the subject
+sakurapion-style__cafe__D_ref_long__20260927,sakurapion-style,cafe,D_ref_long,20260927,leakage>=3,the reference girl and her parfait replace the requested man as the subject
+sakurapion-style__cafe__E_ref_short__42,sakurapion-style,cafe,E_ref_short,42,scene,tropical drink and bougainvillea added to the cafe facade
+sakurapion-style__cafe__E_ref_short__1234,sakurapion-style,cafe,E_ref_short,1234,leakage>=3,"man kept, but the reference's fruit parfait and tropical flowers enter the cafe"
+sakurapion-style__cafe__E_ref_short__20260927,sakurapion-style,cafe,E_ref_short,20260927,leakage>=3,"man kept, but the reference's fruit parfait and tropical flowers enter the cafe"
+sakurapion-style__still_life__A_content_only__42,sakurapion-style,still_life,A_content_only,42,hair/eye,n/a (no person requested)
+sakurapion-style__still_life__A_content_only__42,sakurapion-style,still_life,A_content_only,42,outfit,n/a (no person requested)
+sakurapion-style__still_life__B_text_short__42,sakurapion-style,still_life,B_text_short,42,hair/eye,n/a (no person requested)
+sakurapion-style__still_life__B_text_short__42,sakurapion-style,still_life,B_text_short,42,outfit,n/a (no person requested)
+sakurapion-style__still_life__C_ref_only__42,sakurapion-style,still_life,C_ref_only,42,hair/eye,n/a (no person requested)
+sakurapion-style__still_life__C_ref_only__42,sakurapion-style,still_life,C_ref_only,42,outfit,n/a (no person requested)
+sakurapion-style__still_life__D_ref_long__42,sakurapion-style,still_life,D_ref_long,42,hair/eye,n/a (no person requested)
+sakurapion-style__still_life__D_ref_long__42,sakurapion-style,still_life,D_ref_long,42,outfit,n/a (no person requested)
+sakurapion-style__still_life__D_ref_long__42,sakurapion-style,still_life,D_ref_long,42,scene,the reference's blue-haired girl and tropical parfait scene replace the still life entirely
+sakurapion-style__still_life__D_ref_long__42,sakurapion-style,still_life,D_ref_long,42,leakage>=3,
+sakurapion-style__still_life__D_ref_long__1234,sakurapion-style,still_life,D_ref_long,1234,leakage>=3,the reference's girl and tropical parfait replace the still life
+sakurapion-style__still_life__D_ref_long__20260927,sakurapion-style,still_life,D_ref_long,20260927,leakage>=3,the reference's girl and tropical parfait replace the still life
+sakurapion-style__still_life__E_ref_short__42,sakurapion-style,still_life,E_ref_short,42,hair/eye,n/a (no person requested)
+sakurapion-style__still_life__E_ref_short__42,sakurapion-style,still_life,E_ref_short,42,outfit,n/a (no person requested)
+sakurapion-style__still_life__E_ref_short__42,sakurapion-style,still_life,E_ref_short,42,scene,the requested teapot is drawn as a prop held by the reference's girl
+sakurapion-style__still_life__E_ref_short__42,sakurapion-style,still_life,E_ref_short,42,leakage>=3,
+sakurapion-style__still_life__E_ref_short__1234,sakurapion-style,still_life,E_ref_short,1234,leakage>=3,girl occupies the frame; teapot and lemons survive as her table props
+sakurapion-style__still_life__E_ref_short__20260927,sakurapion-style,still_life,E_ref_short,20260927,leakage>=3,girl occupies the frame; teapot and lemons survive as her table props
+sakurapion-style__still_life__F_ref_priority__42,sakurapion-style,still_life,F_ref_priority,42,hair/eye,n/a (no person requested)
+sakurapion-style__still_life__F_ref_priority__42,sakurapion-style,still_life,F_ref_priority,42,outfit,n/a (no person requested)
+sakurapion-style__still_life__F_ref_priority__42,sakurapion-style,still_life,F_ref_priority,42,scene,"the girl, penguin mascots and tropical flowers dominate; the still life is her table"
+sakurapion-style__still_life__F_ref_priority__42,sakurapion-style,still_life,F_ref_priority,42,leakage>=3,
+sakurapion-style__still_life__F_ref_priority__1234,sakurapion-style,still_life,F_ref_priority,1234,leakage>=3,portrait of the reference girl with the teapot as a prop
+sakurapion-style__still_life__F_ref_priority__20260927,sakurapion-style,still_life,F_ref_priority,20260927,leakage>=3,portrait of the reference girl with the teapot as a prop
+sakurapion-style__dual__H_dual_style_priority__42,sakurapion-style,dual,H_dual_style_priority,42,outfit,the dress neckline is drawn lower than in the content image
+sakurapion-style__dual__H_dual_style_priority__1234,sakurapion-style,dual,H_dual_style_priority,1234,outfit,lower neckline than the content image
+sakurapion-style__dual__H_dual_style_priority__20260927,sakurapion-style,dual,H_dual_style_priority,20260927,outfit,lower neckline than the content image
+fuzichoco-v2__harbor__D_ref_long__42,fuzichoco-v2,harbor,D_ref_long,42,outfit,gown-like coat with scarf-ish drape
+fuzichoco-v2__harbor__D_ref_long__42,fuzichoco-v2,harbor,D_ref_long,42,scene,harbor/lighthouse replaced by a pagoda and blossom field
+fuzichoco-v2__harbor__D_ref_long__42,fuzichoco-v2,harbor,D_ref_long,42,leakage>=3,Magenta/pink blossom explosion with a pagoda at the right and a girl in the yellow coat on the bicycle. Long style text + reference reproduced the reference's saturated fantasy rendering but also its lush floral set dres
+fuzichoco-v2__harbor__E_ref_short__42,fuzichoco-v2,harbor,E_ref_short,42,scene,reference frame + doves inserted into the scene
+fuzichoco-v2__harbor__E_ref_short__42,fuzichoco-v2,harbor,E_ref_short,42,leakage>=3,"Copy of the reference's framing device: the ornate gold picture frame and the white doves flying out of it are reproduced almost literally, with the harbor and the yellow-coated woman placed inside the frame. Subject pre"
+fuzichoco-v2__harbor__F_ref_priority__42,fuzichoco-v2,harbor,F_ref_priority,42,hair/eye,hair longer and softer than the requested bob
+fuzichoco-v2__harbor__F_ref_priority__42,fuzichoco-v2,harbor,F_ref_priority,42,outfit,raincoat turned into an ornate coat with scarf
+fuzichoco-v2__harbor__F_ref_priority__42,fuzichoco-v2,harbor,F_ref_priority,42,scene,harbor/lighthouse/bicycle replaced by a pagoda-and-blossom fantasy scene
+fuzichoco-v2__harbor__F_ref_priority__42,fuzichoco-v2,harbor,F_ref_priority,42,leakage>=3,"Reference-priority text version: magenta/pink floral chaos of the reference plus an Oriental pagoda; the requested harbor and bicycle are gone. Gown restyled, hair long. Lush saturated fantasy rendering achieved, but the"
+fuzichoco-v2__cafe__D_ref_long__42,fuzichoco-v2,cafe,D_ref_long,42,scene,an extra white-haired female figure appears beside the requested man
+fuzichoco-v2__cafe__D_ref_long__42,fuzichoco-v2,cafe,D_ref_long,42,leakage>=3,
+fuzichoco-v2__cafe__D_ref_long__1234,fuzichoco-v2,cafe,D_ref_long,1234,leakage>=3,the reference's white-haired fantasy girl materialises beside the man
+fuzichoco-v2__cafe__D_ref_long__20260927,fuzichoco-v2,cafe,D_ref_long,20260927,leakage>=3,the reference's white-haired fantasy girl materialises beside the man
+fuzichoco-v2__cafe__E_ref_short__42,fuzichoco-v2,cafe,E_ref_short,42,scene,"the reference's picture frame, moon and doves rebuilt around the cafe table"
+fuzichoco-v2__cafe__E_ref_short__42,fuzichoco-v2,cafe,E_ref_short,42,leakage>=3,
+fuzichoco-v2__cafe__E_ref_short__1234,fuzichoco-v2,cafe,E_ref_short,1234,leakage>=3,the framed rider on the white horse occupies the wall behind the cafe table
+fuzichoco-v2__cafe__E_ref_short__20260927,fuzichoco-v2,cafe,E_ref_short,20260927,leakage>=3,the framed rider on the white horse occupies the wall behind the cafe table
+fuzichoco-v2__cafe__F_ref_priority__42,fuzichoco-v2,cafe,F_ref_priority,42,scene,pink blossom field replaces the cafe flooring
+fuzichoco-v2__still_life__A_content_only__42,fuzichoco-v2,still_life,A_content_only,42,hair/eye,n/a (no person requested)
+fuzichoco-v2__still_life__A_content_only__42,fuzichoco-v2,still_life,A_content_only,42,outfit,n/a (no person requested)
+fuzichoco-v2__still_life__B_text_short__42,fuzichoco-v2,still_life,B_text_short,42,hair/eye,n/a (no person requested)
+fuzichoco-v2__still_life__B_text_short__42,fuzichoco-v2,still_life,B_text_short,42,outfit,n/a (no person requested)
+fuzichoco-v2__still_life__C_ref_only__42,fuzichoco-v2,still_life,C_ref_only,42,hair/eye,n/a (no person requested)
+fuzichoco-v2__still_life__C_ref_only__42,fuzichoco-v2,still_life,C_ref_only,42,outfit,n/a (no person requested)
+fuzichoco-v2__still_life__D_ref_long__42,fuzichoco-v2,still_life,D_ref_long,42,hair/eye,n/a (no person requested)
+fuzichoco-v2__still_life__D_ref_long__42,fuzichoco-v2,still_life,D_ref_long,42,outfit,n/a (no person requested)
+fuzichoco-v2__still_life__D_ref_long__42,fuzichoco-v2,still_life,D_ref_long,42,scene,a white-haired girl in a floral robe replaces the still life; teapot/cup/lemons survive only as props
+fuzichoco-v2__still_life__D_ref_long__42,fuzichoco-v2,still_life,D_ref_long,42,leakage>=3,
+fuzichoco-v2__still_life__D_ref_long__1234,fuzichoco-v2,still_life,D_ref_long,1234,leakage>=3,a white-haired girl with a horse fills the frame; the still life survives in front
+fuzichoco-v2__still_life__D_ref_long__20260927,fuzichoco-v2,still_life,D_ref_long,20260927,leakage>=3,a white-haired girl with a horse fills the frame; the still life survives in front
+fuzichoco-v2__still_life__E_ref_short__42,fuzichoco-v2,still_life,E_ref_short,42,hair/eye,n/a (no person requested)
+fuzichoco-v2__still_life__E_ref_short__42,fuzichoco-v2,still_life,E_ref_short,42,outfit,n/a (no person requested)
+fuzichoco-v2__still_life__E_ref_short__42,fuzichoco-v2,still_life,E_ref_short,42,scene,the reference's framed rider on a white horse occupies the picture; the still life sits on the sill below it
+fuzichoco-v2__still_life__E_ref_short__42,fuzichoco-v2,still_life,E_ref_short,42,leakage>=3,
+fuzichoco-v2__still_life__E_ref_short__1234,fuzichoco-v2,still_life,E_ref_short,1234,leakage>=3,the reference's framed white horse and doves are reproduced behind the teapot
+fuzichoco-v2__still_life__E_ref_short__20260927,fuzichoco-v2,still_life,E_ref_short,20260927,leakage>=3,the reference's framed white horse and doves are reproduced behind the teapot
+fuzichoco-v2__still_life__F_ref_priority__42,fuzichoco-v2,still_life,F_ref_priority,42,hair/eye,n/a (no person requested)
+fuzichoco-v2__still_life__F_ref_priority__42,fuzichoco-v2,still_life,F_ref_priority,42,outfit,n/a (no person requested)
+fuzichoco-v2__still_life__F_ref_priority__42,fuzichoco-v2,still_life,F_ref_priority,42,scene,a white-haired girl with a prismatic aura stands behind the requested teapot and lemons
+fuzichoco-v2__still_life__F_ref_priority__42,fuzichoco-v2,still_life,F_ref_priority,42,leakage>=3,
+fuzichoco-v2__still_life__F_ref_priority__1234,fuzichoco-v2,still_life,F_ref_priority,1234,leakage>=3,the white-haired girl stands behind the requested objects
+fuzichoco-v2__still_life__F_ref_priority__20260927,fuzichoco-v2,still_life,F_ref_priority,20260927,leakage>=3,the white-haired girl stands behind the requested objects
+tinkle-style__harbor__D_ref_long__42,tinkle-style,harbor,D_ref_long,42,hair/eye,hair purple instead of chestnut bob
+tinkle-style__harbor__D_ref_long__42,tinkle-style,harbor,D_ref_long,42,outfit,coat kept but restyled as a frilly dress
+tinkle-style__harbor__D_ref_long__42,tinkle-style,harbor,D_ref_long,42,scene,harbor/lighthouse/bicycle lost
+tinkle-style__harbor__D_ref_long__42,tinkle-style,harbor,D_ref_long,42,leakage>=3,"Long style text + reference produced a long-purple-haired chibi girl in a lilac petal snowfall. The requested woman, yellow raincoat and harbor bicycle are gone; only the yellow coat colour survives as a coat shape. The "
+tinkle-style__harbor__E_ref_short__42,tinkle-style,harbor,E_ref_short,42,outfit,coat reads pale yellow
+tinkle-style__harbor__F_ref_priority__42,tinkle-style,harbor,F_ref_priority,42,hair/eye,"hair reads dark brown, acceptable"
+tinkle-style__cafe__D_ref_long__42,tinkle-style,cafe,D_ref_long,42,hair/eye,pink-haired doll protagonist instead of the requested man
+tinkle-style__cafe__D_ref_long__42,tinkle-style,cafe,D_ref_long,42,scene,the requested male subject is replaced by a tinkle-style girl
+tinkle-style__cafe__D_ref_long__42,tinkle-style,cafe,D_ref_long,42,leakage>=3,
+tinkle-style__cafe__D_ref_long__1234,tinkle-style,cafe,D_ref_long,1234,leakage>=3,the reference's pink-haired girl becomes the subject; the man is gone or residual
+tinkle-style__cafe__D_ref_long__20260927,tinkle-style,cafe,D_ref_long,20260927,leakage>=3,the girl dominates but the man remains visible at the table
+tinkle-style__cafe__E_ref_short__42,tinkle-style,cafe,E_ref_short,42,hair/eye,an extra long-haired girl appears beside the man
+tinkle-style__cafe__E_ref_short__42,tinkle-style,cafe,E_ref_short,42,leakage>=3,
+tinkle-style__cafe__E_ref_short__1234,tinkle-style,cafe,E_ref_short,1234,leakage>=3,"a long pink-haired girl dominates the frame, the man reduced to a background figure"
+tinkle-style__cafe__E_ref_short__20260927,tinkle-style,cafe,E_ref_short,20260927,leakage>=3,"a long pink-haired girl dominates the frame, the man reduced to a background figure"
+tinkle-style__cafe__F_ref_priority__1234,tinkle-style,cafe,F_ref_priority,1234,leakage>=3,the girl occupies the picture while the man sits at the table edge
+tinkle-style__cafe__F_ref_priority__20260927,tinkle-style,cafe,F_ref_priority,20260927,leakage>=3,the girl occupies the picture while the man sits at the table edge
+tinkle-style__still_life__A_content_only__42,tinkle-style,still_life,A_content_only,42,hair/eye,n/a (no person requested)
+tinkle-style__still_life__A_content_only__42,tinkle-style,still_life,A_content_only,42,outfit,n/a (no person requested)
+tinkle-style__still_life__B_text_short__42,tinkle-style,still_life,B_text_short,42,hair/eye,n/a (no person requested)
+tinkle-style__still_life__B_text_short__42,tinkle-style,still_life,B_text_short,42,outfit,n/a (no person requested)
+tinkle-style__still_life__C_ref_only__42,tinkle-style,still_life,C_ref_only,42,hair/eye,n/a (no person requested)
+tinkle-style__still_life__C_ref_only__42,tinkle-style,still_life,C_ref_only,42,outfit,n/a (no person requested)
+tinkle-style__still_life__D_ref_long__42,tinkle-style,still_life,D_ref_long,42,hair/eye,n/a (no person requested)
+tinkle-style__still_life__D_ref_long__42,tinkle-style,still_life,D_ref_long,42,outfit,n/a (no person requested)
+tinkle-style__still_life__D_ref_long__42,tinkle-style,still_life,D_ref_long,42,scene,a pink-haired girl replaces the still life; the teapot becomes her prop
+tinkle-style__still_life__D_ref_long__42,tinkle-style,still_life,D_ref_long,42,leakage>=3,
+tinkle-style__still_life__D_ref_long__1234,tinkle-style,still_life,D_ref_long,1234,leakage>=3,the reference's pink-haired girl replaces the still life entirely
+tinkle-style__still_life__D_ref_long__20260927,tinkle-style,still_life,D_ref_long,20260927,leakage>=3,the reference's pink-haired girl replaces the still life entirely
+tinkle-style__still_life__E_ref_short__42,tinkle-style,still_life,E_ref_short,42,hair/eye,n/a (no person requested)
+tinkle-style__still_life__E_ref_short__42,tinkle-style,still_life,E_ref_short,42,outfit,n/a (no person requested)
+tinkle-style__still_life__E_ref_short__42,tinkle-style,still_life,E_ref_short,42,scene,"a long-haired girl sits behind the requested teapot, cup and lemons"
+tinkle-style__still_life__E_ref_short__42,tinkle-style,still_life,E_ref_short,42,leakage>=3,
+tinkle-style__still_life__E_ref_short__1234,tinkle-style,still_life,E_ref_short,1234,leakage>=3,girl in a cafe at the same table; teapot and lemons kept as her props
+tinkle-style__still_life__E_ref_short__20260927,tinkle-style,still_life,E_ref_short,20260927,leakage>=3,girl in a cafe at the same table; teapot and lemons kept as her props
+tinkle-style__still_life__F_ref_priority__42,tinkle-style,still_life,F_ref_priority,42,hair/eye,n/a (no person requested)
+tinkle-style__still_life__F_ref_priority__42,tinkle-style,still_life,F_ref_priority,42,outfit,n/a (no person requested)
+tinkle-style__still_life__F_ref_priority__42,tinkle-style,still_life,F_ref_priority,42,scene,a ghosted pink-haired figure stands among the requested objects
+tinkle-style__still_life__F_ref_priority__42,tinkle-style,still_life,F_ref_priority,42,leakage>=3,
+tinkle-style__still_life__F_ref_priority__1234,tinkle-style,still_life,F_ref_priority,1234,leakage>=3,girl portrait with the teapot; the explicit no-person instruction is overridden
+tinkle-style__still_life__F_ref_priority__20260927,tinkle-style,still_life,F_ref_priority,20260927,leakage>=3,girl portrait with the teapot; the explicit no-person instruction is overridden
+tinkle-style__dual__H_dual_style_priority__42,tinkle-style,dual,H_dual_style_priority,42,outfit,dress restyled with extra frills and lace
+tinkle-style__dual__H_dual_style_priority__1234,tinkle-style,dual,H_dual_style_priority,1234,outfit,dress restyled with extra frills
+tinkle-style__dual__H_dual_style_priority__20260927,tinkle-style,dual,H_dual_style_priority,20260927,outfit,dress restyled with extra frills
+renian__harbor__B_text_short__42,renian,harbor,B_text_short,42,hair/eye,hair lighter than chestnut
+renian__harbor__B_text_short__42,renian,harbor,B_text_short,42,outfit,coat pale yellow rather than plain yellow
+renian__harbor__B_text_short__42,renian,harbor,B_text_short,42,scene,"bicycle missing, terrace-seafront instead of harbor quay"
+renian__harbor__D_ref_long__42,renian,harbor,D_ref_long,42,hair/eye,mint green long hair instead of chestnut bob
+renian__harbor__D_ref_long__42,renian,harbor,D_ref_long,42,outfit,yellow coat kept over an aqua fantasy costume
+renian__harbor__D_ref_long__42,renian,harbor,D_ref_long,42,scene,underwater bubble/coral set dressing injected into the harbour
+renian__harbor__D_ref_long__42,renian,harbor,D_ref_long,42,leakage>=3,"The reference's protagonist reproduced: long mint-green hair, aqua iridescent ribbon-like hair mass, glass bubbles, coral, shells and pearls. The yellow coat and the bicycle survive as props, but the woman is a mint-hair"
+renian__harbor__D_ref_long__1234,renian,harbor,D_ref_long,1234,leakage>=3,mint-haired translucent girl replaces the requested woman; only the coat and bicycle remain
+renian__harbor__D_ref_long__20260927,renian,harbor,D_ref_long,20260927,leakage>=3,mint-haired translucent girl replaces the requested woman; only the coat and bicycle remain
+renian__harbor__E_ref_short__42,renian,harbor,E_ref_short,42,scene,bubbles/seashells added to the quay
+renian__harbor__E_ref_short__1234,renian,harbor,E_ref_short,1234,leakage>=3,correct woman kept; the reference's translucent aqua hair mass fills the background
+renian__harbor__E_ref_short__20260927,renian,harbor,E_ref_short,20260927,leakage>=3,correct woman kept; the reference's translucent aqua hair mass fills the background
+renian__harbor__F_ref_priority__42,renian,harbor,F_ref_priority,42,hair/eye,hair slightly lighter/softer than chestnut bob
+renian__harbor__F_ref_priority__1234,renian,harbor,F_ref_priority,1234,leakage>=3,correct woman kept with the aqua hair mass and petal confetti behind her
+renian__harbor__F_ref_priority__20260927,renian,harbor,F_ref_priority,20260927,leakage>=3,correct woman kept with the aqua hair mass and petal confetti behind her
+renian__cafe__D_ref_long__42,renian,cafe,D_ref_long,42,hair/eye,aqua long-haired extra figure added
+renian__cafe__D_ref_long__42,renian,cafe,D_ref_long,42,scene,reference's aqua hair-ribbon set piece wraps the cafe table
+renian__cafe__D_ref_long__42,renian,cafe,D_ref_long,42,leakage>=3,
+renian__cafe__D_ref_long__1234,renian,cafe,D_ref_long,1234,leakage>=3,man and cat kept; an aqua-haired reference figure sits beside the table
+renian__cafe__D_ref_long__20260927,renian,cafe,D_ref_long,20260927,leakage>=3,man and cat kept; an aqua-haired reference figure sits beside the table
+renian__cafe__E_ref_short__42,renian,cafe,E_ref_short,42,scene,the reference's translucent hair-ribbon mass and bubbles occupy the cafe
+renian__cafe__E_ref_short__42,renian,cafe,E_ref_short,42,leakage>=3,
+renian__cafe__E_ref_short__1234,renian,cafe,E_ref_short,1234,leakage>=3,man and cat kept; the translucent aqua hair mass frames the table
+renian__cafe__E_ref_short__20260927,renian,cafe,E_ref_short,20260927,leakage>=3,man and cat kept; the translucent aqua hair mass frames the table
+renian__cafe__F_ref_priority__42,renian,cafe,F_ref_priority,42,scene,same aqua hair-ribbon set piece as E; only the extras differ
+renian__cafe__F_ref_priority__42,renian,cafe,F_ref_priority,42,leakage>=3,
+renian__cafe__F_ref_priority__1234,renian,cafe,F_ref_priority,1234,leakage>=3,man and cat kept; aqua hair and bubbles fill the background
+renian__cafe__F_ref_priority__20260927,renian,cafe,F_ref_priority,20260927,leakage>=3,man and cat kept; aqua hair and bubbles fill the background
+renian__still_life__A_content_only__42,renian,still_life,A_content_only,42,hair/eye,n/a (no person requested)
+renian__still_life__A_content_only__42,renian,still_life,A_content_only,42,outfit,n/a (no person requested)
+renian__still_life__B_text_short__42,renian,still_life,B_text_short,42,hair/eye,n/a (no person requested)
+renian__still_life__B_text_short__42,renian,still_life,B_text_short,42,outfit,n/a (no person requested)
+renian__still_life__C_ref_only__42,renian,still_life,C_ref_only,42,hair/eye,n/a (no person requested)
+renian__still_life__C_ref_only__42,renian,still_life,C_ref_only,42,outfit,n/a (no person requested)
+renian__still_life__D_ref_long__42,renian,still_life,D_ref_long,42,hair/eye,n/a (no person requested)
+renian__still_life__D_ref_long__42,renian,still_life,D_ref_long,42,outfit,n/a (no person requested)
+renian__still_life__D_ref_long__42,renian,still_life,D_ref_long,42,scene,the underwater mint-haired reference protagonist replaces the still life
+renian__still_life__D_ref_long__42,renian,still_life,D_ref_long,42,leakage>=3,
+renian__still_life__D_ref_long__1234,renian,still_life,D_ref_long,1234,leakage>=3,the underwater mint-haired protagonist replaces the still life
+renian__still_life__D_ref_long__20260927,renian,still_life,D_ref_long,20260927,leakage>=3,the underwater mint-haired protagonist replaces the still life
+renian__still_life__E_ref_short__42,renian,still_life,E_ref_short,42,hair/eye,n/a (no person requested)
+renian__still_life__E_ref_short__42,renian,still_life,E_ref_short,42,outfit,n/a (no person requested)
+renian__still_life__E_ref_short__42,renian,still_life,E_ref_short,42,scene,"a giant translucent mint-haired figure towers behind the requested teapot, cup and lemons"
+renian__still_life__E_ref_short__42,renian,still_life,E_ref_short,42,leakage>=3,
+renian__still_life__E_ref_short__1234,renian,still_life,E_ref_short,1234,leakage>=3,a giant translucent mint-haired figure towers behind the requested objects
+renian__still_life__E_ref_short__20260927,renian,still_life,E_ref_short,20260927,leakage>=3,a giant translucent mint-haired figure towers behind the requested objects
+renian__still_life__F_ref_priority__42,renian,still_life,F_ref_priority,42,hair/eye,n/a (no person requested)
+renian__still_life__F_ref_priority__42,renian,still_life,F_ref_priority,42,outfit,n/a (no person requested)
+renian__still_life__F_ref_priority__42,renian,still_life,F_ref_priority,42,scene,same translucent mint figure with bubbles; still life survives only as a foreground ledge
+renian__still_life__F_ref_priority__42,renian,still_life,F_ref_priority,42,leakage>=3,
+renian__still_life__F_ref_priority__1234,renian,still_life,F_ref_priority,1234,leakage>=3,"same translucent mint figure; teapot, cup and lemons survive in front"
+renian__still_life__F_ref_priority__20260927,renian,still_life,F_ref_priority,20260927,leakage>=3,"same translucent mint figure; teapot, cup and lemons survive in front"
+renian__dual__H_dual_style_priority__42,renian,dual,H_dual_style_priority,42,outfit,dress neckline lowered and layers added
+renian__dual__H_dual_style_priority__1234,renian,dual,H_dual_style_priority,1234,outfit,dress neckline lowered and layers added
+renian__dual__H_dual_style_priority__20260927,renian,dual,H_dual_style_priority,20260927,outfit,dress neckline lowered and layers added
