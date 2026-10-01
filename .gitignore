@@ -64,6 +64,8 @@ exp/galgame-cg-20260928/out/*
 !exp/galgame-cg-20260928/out/story-*.png
 !exp/galgame-cg-20260928/out/fix-*.png
 !exp/galgame-cg-20260928/manifest.jsonl
+!exp/galgame-cg-20260928/README.md
+!exp/galgame-cg-20260928/autostart-verify.txt
 !exp/galgame-cg-20260928/run.py
 !exp/galgame-cg-20260928/verify.py
 !exp/galgame-cg-20260928/compare.py

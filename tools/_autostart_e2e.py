@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """端到端验证开机自启：停服务 → 按启动时的调用方式触发 → 确认自己回来。
 
-  python tools/_autostart_e2e.py
+  python tools/_autostart_e2e.py            # 跑验证
+  python tools/_autostart_e2e.py --report   # 跑验证并把结果落盘到
+                                            # exp/galgame-cg-20260928/autostart-verify.txt
 
 验证两条链路，且**分别验证**（不能只测一条就说"自启可用"）：
   1. /init/bin/customer.cmd.sh —— AutoDL 每次容器启动都会跑它（主链路）
   2. ~/.bashrc —— 任何登录 shell 触发（退路）
 
-注意：本脚本会**停掉正在跑的服务**。验证窗口约 20 秒，之后服务会恢复。
+注意：本脚本会**停掉正在跑的服务**。验证窗口约 3 分钟，之后服务会恢复。
 """
 from __future__ import annotations
 
@@ -36,6 +38,25 @@ def connect():
 
 
 def main() -> int:
+    report = "--report" in sys.argv
+    if report:
+        # 把整个过程的 stdout 同时写进文件，作为"已接收的验证结果"落盘
+        out = pathlib.Path(__file__).resolve().parents[1] / "exp" / "galgame-cg-20260928" \
+            / "autostart-verify.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fh = out.open("w", encoding="utf-8")
+
+        class Tee:
+            def write(self, s):                                         # noqa: ANN001
+                sys.__stdout__.write(s)
+                fh.write(s)
+
+            def flush(self):
+                sys.__stdout__.flush()
+                fh.flush()
+
+        sys.stdout = Tee()                                              # type: ignore[assignment]
+
     c = connect()
 
     def sh(cmd: str, t: int = 300) -> str:
@@ -54,8 +75,10 @@ def main() -> int:
         return False
 
     fails: list[str] = []
+    checks_seen: list[str] = []
 
     def check(cond: bool, label: str, extra: str = "") -> None:
+        checks_seen.append(label)
         print(("  OK   " if cond else "  FAIL ") + label + (("  " + extra) if extra else ""))
         if not cond:
             fails.append(label)
@@ -185,9 +208,13 @@ def main() -> int:
 
     c.close()
     print()
-    print(f"结论: {'两条链路都通过' if not fails else '%d 项失败' % len(fails)}")
+    total = len(checks_seen)
+    print(f"断言 {total} 项，失败 {len(fails)} 项")
+    print(f"结论: {'全部通过' if not fails else '%d 项失败' % len(fails)}")
     for f in fails:
         print("   -", f)
+    if report:
+        print(f"\n[结果已落盘] exp/galgame-cg-20260928/autostart-verify.txt")
     return 0 if not fails else 1
 
 

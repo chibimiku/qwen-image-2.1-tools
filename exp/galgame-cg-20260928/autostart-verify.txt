@@ -1,0 +1,53 @@
+=== 前置状态 ===
+  OK   测试前服务是活的
+  OK   不是 mock 模式
+
+=== 链路 1：/init/bin/customer.cmd.sh（容器启动时执行的那个）===
+  OK   服务已停（为验证腾出位置）
+       customer.cmd.sh 输出: (空)
+  OK   服务被自启拉起来了  mode=real
+  OK   起来的是真实模式，不是 mock
+       自启记录:
+         [2026-10-01 23:41:17] 已有实例在跑，跳过（不抢占）
+         [2026-10-01 23:41:17] === autostart 触发 (args: none) ===
+         [2026-10-01 23:41:17] 已有实例在跑，跳过（不抢占）
+         [2026-10-01 23:41:17] === autostart 触发 (args: none) ===
+         [2026-10-01 23:41:17] 已有实例在跑，跳过（不抢占）
+
+=== 链路 2：~/.bashrc（登录 shell 触发）===
+  OK   服务已停
+       退路在 .bashrc 中的行号 vs 提前 return 的行号:
+         1:# --- qwen-autostart（退路：任何 shell 都触发一次，脚本内部幂等）---
+         2:bash /root/autodl-tmp/autostart/qwen-autostart.sh >/dev/null 2>&1   # qwen-autostart
+         3:# --- end qwen-autostart ---
+         10:[ -z "$PS1" ] && return
+  OK   退路也能把服务拉起来（非交互 shell 路径）  mode=real
+  OK   退路起来的是真实模式
+
+=== 并发触发：加载窗口内重复触发不能换进程 ===
+       第一次触发后 pidfile=15664
+  OK   加载窗口内的重复触发没有换进程  pid 15664 -> 15664
+  OK   最终仍然正常就绪  mode=real
+
+=== 幂等：就绪状态下重复触发 ===
+  OK   状态未变，没有换进程  pid 15664 -> 15664
+  OK   6006 只有一个 LISTEN socket（/proc/net/tcp）  listening=1
+  OK   GPU 上只有一个服务进程（无孤儿）  gpu_procs=1
+
+=== 陈旧 pidfile 的场景 ===
+  OK   服务已停，且 pidfile 被伪造成死 pid
+  OK   自启能识破陈旧 pidfile 并正常拉起  mode=real
+
+=== 收尾状态 ===
+  等服务就绪（最后一次测试刚拉起来，权重加载要十几秒）…
+  OK   收尾时 /health 返回 ok
+  OK   权重已完全加载  loaded=true
+  OK   没有加载错误
+  OK   收尾时是真实模式
+  health: {"status":"ok","model":"Qwen-Image-2.1","loaded":true,"mode":"auto","mock":false,"checkpoint":{"dir":"/root/autodl-tmp/Qwen-Image-
+  公网入口: 200
+
+断言 19 项，失败 0 项
+结论: 全部通过
+
+[结果已落盘] exp/galgame-cg-20260928/autostart-verify.txt
