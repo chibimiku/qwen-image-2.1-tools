@@ -251,6 +251,24 @@ python tools/autodl_ssh.py fwd <本地脚本.py>       # 起转发并跑脚本�
 
 ---
 
+### 开机自启（[`AUTOSTART.md`](AUTOSTART.md)）
+
+实例重启后让服务自己起来。**AutoDL 这台机上 systemd 用不了**（PID 1 是
+`bash /init/boot/boot.sh`，`systemctl is-system-running` 报 offline），所以自启挂在
+AutoDL 官方的 `/init/bin/customer.cmd.sh` 上，脚本本体放持久盘 `/root/autodl-tmp/`
+（`/init` 与 `/root/autodl-tmp` 在 `/dev/md0` 上持久；`/etc`、`/root` 走 overlay，
+容器重建即丢）。
+
+| 文件 | 作用 |
+|---|---|
+| `remote/autostart/qwen-autostart.sh` | 自启脚本：幂等、等 GPU、清残留、等显存释放、不阻塞 boot |
+| `tools/deploy_autostart.py` | 上传 + 语法检查 + 装引导 + 状态（容器重建后用 `--install` 重贴） |
+| `tools/_autostart_e2e.py` | 端到端验证两条链路、并发触发、幂等、陈旧 pidfile（15 项断言） |
+| `tools/_svc_procs.py` | 精确看服务进程与显存占用（`pgrep -f` 会匹配到 ssh 自身，别用它） |
+| `tools/_svc_watch_load.py` | 盯权重加载到 `loaded:true`（health 在加载完成前就返回 ok） |
+
+---
+
 ### 固定角色 + 指定画风：双图配方（[`RECIPE-character-plus-style.md`](RECIPE-character-plus-style.md)）
 
 把上一个实验的结论落成可复用的做法：**`<image1>` 管角色身份、`<image2>` 管画风，
