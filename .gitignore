@@ -69,8 +69,19 @@ exp/galgame-cg-20260928/out/*
 !exp/galgame-cg-20260928/run.py
 !exp/galgame-cg-20260928/verify.py
 !exp/galgame-cg-20260928/compare.py
+!exp/galgame-cg-20260928/sheets.py
+!exp/galgame-cg-20260928/zoom.py
+!exp/galgame-cg-20260928/scan_defects.py
+!exp/galgame-cg-20260928/DEFECTS.md
 !exp/galgame-cg-20260928/sheets-final.png
 !exp/galgame-cg-20260928/compare-*.png
+# 缺陷排查的检查表与证据放大图（只留 3 张作证据，其余过程图不入库）
+!exp/galgame-cg-20260928/sheets-1-bracket.png
+!exp/galgame-cg-20260928/sheets-7-正片-上.png
+!exp/galgame-cg-20260928/sheets-8-正片-下.png
+!exp/galgame-cg-20260928/zoom-story-01-boutique-mirror.png
+!exp/galgame-cg-20260928/zoom-story-06-sunset-bridge-left_right.png
+!exp/galgame-cg-20260928/zoom-story-12-goodnight-560_300_260_200-520_110_300_160.png
 
 # prompt 长度实测的探针产物（tools/probe_prompt_len.py 等生成）：
 # 图不进仓库，小的结果文件（*.json / *.txt）留着当证据
