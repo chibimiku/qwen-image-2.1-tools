@@ -283,6 +283,18 @@ AutoDL 官方的 `/init/bin/customer.cmd.sh` 上，脚本本体放持久盘 `/ro
 
 ---
 
+### 出图自检回路（[`AUTO-QA-LOOP.md`](AUTO-QA-LOOP.md)）
+
+控制台「AI 自检」面板：出图后把图发给视觉 LLM 判定，不合格就让模型**在上一版 prompt
+基础上**改场景段 / 换样式词档位 / 换参考图组合 / 换 seed，再重跑，最多 N 轮。
+
+- 判定与修订都是**固定 prompt**，只认枚举值；模型自创的档位被丢弃
+- key 由用户在面板填入，**存服务端不回显**（`vision.env`，mode 600，已 gitignore）
+- 每轮的图 + 判定 + 修订记录落在实例 `auto-runs/<job_id>/`，可归因
+- 核心回路在 `service/autoloop.py`，可脱离服务单测（`tools/test_autoloop.py`，30 项）
+
+---
+
 ### 宽屏（壁纸）尺寸的实测边界
 
 带参考图的请求按"编辑"红线判（`estimate_transient_gib`，`3.65 × MP²`）。

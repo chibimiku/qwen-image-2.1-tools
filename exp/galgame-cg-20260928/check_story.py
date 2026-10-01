@@ -74,11 +74,22 @@ check("已有" in t, "标注了可复用的图")
 
 print("\n=== 剧本要素 ===")
 for key, desc in (("故事核", "有故事核"),
-                  ("女主角设定", "有角色设定（跨图一致性基准）"),
+                  ("角色设定", "有角色设定（跨图一致性基准）"),
                   ("分支点", "有分支设计"),
                   ("连续性", "有连续性检查表"),
                   ("台词", "有台词/旁白")):
     check(key in t, desc)
+
+print("\n=== 两个主角都要写到 ===")
+check("堇" in t, "第一主角「堇」有设定与戏份")
+check("暖暖" in t, "第二主角「暖暖」有设定与戏份")
+check("POETRY BLOOM" in t, "暖暖的标志细节（裙摆字母）有用到")
+check("两条准备线" in t or "同一个人" in t, "故事核写明了信息差结构")
+# 角色参考图是否就位（剧本要能落成图）
+REF = EXP / "refs"
+for fn, who in (("char.png", "堇"), ("nuannuan.png", "暖暖"), ("style.png", "画风参考")):
+    check((REF / fn).exists(), f"参考图 {fn}（{who}）就位")
+check("两人同框" in t or "双人同框" in t, "写明了两人同框的技术方案")
 
 print()
 print(f"断言失败 {len(fails)} 项")
