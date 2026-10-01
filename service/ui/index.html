@@ -317,6 +317,85 @@
       </div>
         </div>
       </details>
+      <!-- ── AI 自检：视觉 LLM 判定出图 → 不合格就改 prompt 重跑，最多 N 轮 ──
+           为什么放在这里：它作用于**整个请求**（prompt + 当前上传的参考图），
+           所以放在两个 tab 共用的位置，跟着识别状态走。 -->
+      <details id="aiwrap" style="margin-top:10px">
+        <summary style="cursor:pointer;color:var(--dim);font-size:12px">
+          AI 自检（视觉 LLM 判定 → 自动改 prompt 重跑，最多 N 轮）
+        </summary>
+        <div style="margin-top:8px">
+
+          <div class="kbd" style="margin:2px 0 8px">
+            <span class="chiphint">
+              出图后把图发给视觉模型判定；不合格就让模型在<b>上一版 prompt 的基础上</b>改场景段、
+              换样式词或参考图组合、换 seed，再重跑。最多跑 N 轮，合格即停。<br>
+              <!-- key 只在服务端保存，不回显；这一点由 tools/check_ui_tokenize.py 把关 -->
+              <b>API key 只存在服务端</b>（写入实例上的配置文件，权限 600），
+              页面不回显、日志不打印。换 key 就直接粘新的覆盖。
+            </span>
+          </div>
+
+          <div class="row">
+            <div style="flex:2">
+              <label>接口 Base URL</label>
+              <input type="text" id="aibase" placeholder="https://api.deepseek.com">
+            </div>
+            <div style="flex:1">
+              <label>模型</label>
+              <input type="text" id="aimodel" placeholder="deepseek-flash">
+            </div>
+          </div>
+
+          <div class="row">
+            <div style="flex:2">
+              <label id="aikeylab">API Key（留空 = 不修改已保存的）</label>
+              <input type="password" id="aikey" autocomplete="off" spellcheck="false"
+                     placeholder="粘贴 key 后点「保存配置」">
+            </div>
+            <div style="flex:1">
+              <label>识图精度 detail</label>
+              <select id="aidetail">
+                <option value="high">high（保原图，判结构更准）</option>
+                <option value="low">low（缩到 512²，快且省）</option>
+                <option value="original">original（同 high）</option>
+                <option value="auto">auto（当前等价 original）</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div style="flex:1">
+              <label>最多修订轮数 N</label>
+              <input type="number" id="airounds" value="3" min="1" max="8" step="1">
+            </div>
+            <div style="flex:1">
+              <label>合格分数线（0–10）</label>
+              <input type="number" id="aiscore" value="7" min="0" max="10" step="0.5">
+            </div>
+            <div style="flex:1;display:flex;align-items:flex-end;gap:6px">
+              <button id="aisave" type="button" class="ghost">保存配置</button>
+              <button id="aitest" type="button" class="ghost">测试连通</button>
+            </div>
+          </div>
+
+          <div class="kbd" id="aistatus" style="margin:6px 0 4px"></div>
+
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+            <!-- 独立按钮：AG 回路会跑多轮、耗时数分钟，不能混进普通「生成」里 -->
+            <button id="aistart" type="button">开始自检回路</button>
+            <button id="aistop" type="button" class="ghost" style="display:none">停止</button>
+            <span class="chiphint">跑起来后可以离开页面，任务在服务端继续。</span>
+          </div>
+
+          <div id="aibody" style="display:none;margin-top:8px">
+            <div id="airoundsview"></div>
+            <div class="kbd" id="ailog" style="max-height:220px;overflow:auto;
+                 white-space:pre-wrap;margin-top:8px"></div>
+          </div>
+        </div>
+      </details>
+
       <div id="uplwrap" style="display:none">
         <label>参考图（最多 10 张）
           <span class="q">?<span class="tip">
@@ -1067,6 +1146,204 @@ function authHeaders(extra){
 function withKey(url){ return url; }        // 会话走 Cookie，不再往 URL 里塞 key
 function api(path){ return ROOT + path; }
 
+/* ── AI 自检：配置面板 + 自检-修订回路 ───────────────────────────────────
+   安全约定（别改）：key 只往服务端发，**页面从不回显** —— 服务端只回 has_key
+   布尔值，所以输入框永远保持空白，用户换 key 就重新粘一次。 */
+let AI = { job: null, timer: null, running: false };
+
+async function loadVisionConfig(){
+  try {
+    const r = await fetch(withKey(api('/v1/vision/config')), {headers: authHeaders()});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    // 注意：这里**只**消费 has_key，绝不碰 api_key
+    if ($('aibase'))  $('aibase').value  = d.base_url || '';
+    if ($('aimodel')) $('aimodel').value = d.model || '';
+    if ($('aidetail'))$('aidetail').value= d.detail || 'high';
+    if ($('airounds'))$('airounds').value= d.max_rounds || 3;
+    if ($('aiscore')) $('aiscore').value = d.pass_score != null ? d.pass_score : 7;
+    const lab = $('aikeylab');
+    if (lab) lab.innerHTML = d.has_key
+      ? 'API Key（<span style="color:var(--good)">已保存</span>，留空 = 不修改）'
+      : 'API Key（<span style="color:var(--warn)">尚未配置</span>）';
+    return d;
+  } catch (err){
+    setAiStatus('读配置失败：' + err.message, 'err');
+    return null;
+  }
+}
+
+function setAiStatus(msg, kind){
+  const el = $('aistatus');
+  if (!el) return;
+  const color = kind === 'err' ? 'var(--bad)' : kind === 'ok' ? 'var(--good)'
+              : kind === 'warn' ? 'var(--warn)' : 'var(--dim)';
+  el.innerHTML = '<span class="chiphint" style="color:' + color + '">' + msg + '</span>';
+}
+
+async function saveVisionConfig(){
+  const body = {
+    base_url: $('aibase') ? $('aibase').value.trim() : undefined,
+    model: $('aimodel') ? $('aimodel').value.trim() : undefined,
+    detail: $('aidetail') ? $('aidetail').value : undefined,
+    max_rounds: $('airounds') ? $('airounds').value : undefined,
+    pass_score: $('aiscore') ? $('aiscore').value : undefined,
+  };
+  const k = $('aikey') ? $('aikey').value.trim() : '';
+  if (k) body.api_key = k;              // 只有填了才发；空串 = 不改
+  try {
+    const r = await fetch(withKey(api('/v1/vision/config')), {
+      method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify(body)});
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    if ($('aikey')) $('aikey').value = '';     // 发完立刻清空，不在页面上留着
+    const lab = $('aikeylab');
+    if (lab) lab.innerHTML = d.has_key
+      ? 'API Key（<span style="color:var(--good)">已保存</span>，留空 = 不修改）'
+      : 'API Key（<span style="color:var(--warn)">尚未配置</span>）';
+    setAiStatus('配置已保存。key ' + (d.has_key ? '已就位' : '仍为空') +
+                '（服务端保存，页面不回显）', 'ok');
+    return d;
+  } catch (err){
+    setAiStatus('保存失败：' + err.message, 'err');
+    return null;
+  }
+}
+
+async function testVision(){
+  setAiStatus('测试中…（只发一个纯文本请求验凭据，不传图）');
+  try {
+    const r = await fetch(withKey(api('/v1/vision/test')), {
+      method:'POST', headers: authHeaders()});
+    const d = await r.json();
+    if (d.ok){
+      setAiStatus('连通 OK：' + d.model + ' @ ' + d.base_url +
+                  '　回复「' + (d.reply || '') + '」', 'ok');
+    } else {
+      setAiStatus('连通失败：' + (d.error || '未知'), 'err');
+    }
+    return d;
+  } catch (err){
+    setAiStatus('测试失败：' + err.message, 'err');
+    return null;
+  }
+}
+
+function aiRoundCard(rv){
+  const v = rv.verdict || {};
+  const worst = (v.worst || 'none').toUpperCase();
+  const color = worst === 'P0' ? 'var(--bad)'
+              : (worst === 'P1' || worst === 'P2') ? 'var(--warn)'
+              : worst === 'NONE' ? 'var(--good)' : 'var(--dim)';
+  const imgs = (rv.images || []).map(function(p){
+    const nm = String(p).replace(/^.*[\\/]/, '');
+    return '<a href="' + api('/v1/auto/file/' + AI.job + '/' + encodeURIComponent(nm)) +
+           '" target="_blank" rel="noopener" class="chiphint">' + nm + '</a>';
+  }).join(' · ');
+  const defs = (v.defects || []).map(function(d){
+    return '<div class="chiphint" style="margin-left:10px">· [' + d.code + '/' + d.severity +
+           '] ' + (d.where || '') + '：' + (d.what || '') + '</div>';
+  }).join('');
+  return '<div style="margin:6px 0;padding:6px;border-left:2px solid ' + color + '">' +
+    '<b>第 ' + rv.round + ' 轮</b>　score=' + (v.score != null ? v.score : '?') +
+    '　最严重=' + worst + (rv.verdict && rv.verdict.ok ? '　<b style="color:var(--good)">通过</b>' : '') +
+    '<div class="chiphint">' + (v.note || '') + '</div>' + defs +
+    (rv.revision ? '<div class="chiphint" style="color:var(--warn)">→ 修订：' +
+        (rv.revision.style_tier ? '样式词=' + rv.revision.style_tier + ' ' : '') +
+        (rv.revision.ref_mode ? '参考图=' + rv.revision.ref_mode + ' ' : '') +
+        (rv.revision.seed != null ? 'seed=' + rv.revision.seed : '') +
+        '　理由：' + (rv.revision.reason || '') + '</div>' : '') +
+    (imgs ? '<div style="margin-top:4px">' + imgs + '</div>' : '') +
+    '</div>';
+}
+
+async function pollAutoLoop(){
+  if (!AI.job) return;
+  try {
+    const r = await fetch(withKey(api('/v1/auto/status/' + AI.job)), {headers: authHeaders()});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const res = d.result || {};
+    if ($('ailog')) $('ailog').textContent = (d.log || []).join('\n');
+    if ($('airoundsview')){
+      $('airoundsview').innerHTML = (res.history || []).map(aiRoundCard).join('') ||
+        '<div class="chiphint">还没有完成任何一轮…</div>';
+    }
+    setAiStatus('状态 ' + d.status + '　第 ' + (d.round || 0) + ' 轮' +
+                (res.passed != null ? '　通过=' + res.passed : '') +
+                (res.best_score != null ? '　最佳 score=' + res.best_score : ''));
+    if (['done', 'finished_unpassed', 'failed'].includes(d.status)){
+      AI.running = false;
+      if (AI.timer){ clearInterval(AI.timer); AI.timer = null; }
+      if ($('aistart')) $('aistart').disabled = false;
+      if ($('aistop')) $('aistop').style.display = 'none';
+      const ok = res.passed;
+      setAiStatus(ok ? '✓ 第 ' + res.best_round + ' 轮通过（score ' + res.best_score + '）'
+                     : '× 跑完 ' + (res.rounds || 0) + ' 轮仍未达标' +
+                       (res.best_score != null ? '，最佳 score=' + res.best_score : '') +
+                       (d.error ? '　错误：' + d.error : ''),
+                   ok ? 'ok' : 'warn');
+      log(ok ? '自检回路通过' : '自检回路结束（未达标）', ok ? 'ok' : 'warn');
+    }
+  } catch (err){
+    setAiStatus('查状态失败：' + err.message, 'err');
+  }
+}
+
+async function startAutoLoop(){
+  if (AI.running) return;
+  const p = params();
+  if (!p.prompt){ log('提示词不能为空', 'err'); return; }
+  if (!files.length){ log('自检回路至少要一张参考图（第一张当角色图）', 'err'); return; }
+  if (!AUTHED && AUTH_REQUIRED){ log('还没登录', 'err'); showLogin(); return; }
+
+  const fd = new FormData();
+  fd.append('prompt', p.prompt);
+  fd.append('num_inference_steps', p.num_inference_steps);
+  if (p.seed !== undefined) fd.append('seed', p.seed);
+  fd.append('transparent', p.transparent);
+  fd.append('output_resolution', $('outres') ? $('outres').value : '');
+  fd.append('aspect_ratio', $('ratio') ? $('ratio').value : '');
+  fd.append('width', $('width') ? $('width').value : '');
+  fd.append('height', $('height') ? $('height').value : '');
+  fd.append('max_rounds', $('airounds') ? $('airounds').value : '3');
+  fd.append('pass_score', $('aiscore') ? $('aiscore').value : '7');
+  files.forEach(f => fd.append('image', f, f.name));
+
+  AI.running = true;
+  if ($('aistart')) $('aistart').disabled = true;
+  if ($('aibody')) $('aibody').style.display = 'block';
+  setAiStatus('启动中…');
+  try {
+    const r = await fetch(withKey(api('/v1/auto/start')), {
+      method:'POST', headers: authHeaders(), body: fd});
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    AI.job = d.job_id;
+    if ($('aistop')) $('aistop').style.display = '';
+    log('自检回路已启动：' + d.job_id + '（最多 ' + d.max_rounds + ' 轮）', 'ok');
+    setAiStatus('已启动 ' + d.job_id + '，正在出图…');
+    if (AI.timer) clearInterval(AI.timer);
+    AI.timer = setInterval(pollAutoLoop, 3000);
+    pollAutoLoop();
+  } catch (err){
+    AI.running = false;
+    if ($('aistart')) $('aistart').disabled = false;
+    setAiStatus('启动失败：' + err.message, 'err');
+    log('自检回路启动失败：' + err.message, 'err');
+  }
+}
+
+async function stopAutoLoop(){
+  if (!AI.job) return;
+  try {
+    await fetch(withKey(api('/v1/auto/stop/' + AI.job)), {
+      method:'POST', headers: authHeaders()});
+    setAiStatus('已请求停止（跑完当前这轮就停）', 'warn');
+  } catch (err){ setAiStatus('停止失败：' + err.message, 'err'); }
+}
+
 /* 401 统一处理。**必须去重**：服务重启后每个在飞的请求都会 401，
    而进度轮询是 600ms 一次 —— 不去重的话每 600ms 就发一个 /v1/session 探测、
    刷一大串日志、反复弹登录框，页面直接卡死（实测过）。 */
@@ -1517,6 +1794,13 @@ if ($('followref')) $('followref').addEventListener('change', () => {
 if ($('outres')) $('outres').addEventListener('change', () => refSizeHint());
 // prompt 一改就重算 token（内部有 350ms 防抖）；切 tab 时模板不同也要重算
 if ($('prompt')) $('prompt').addEventListener('input', scheduleTokenize);
+
+// ── AI 自检面板的事件绑定（元素在面板里，可能被折叠但不影响绑定）──
+if ($('aisave'))  $('aisave').addEventListener('click', () => saveVisionConfig());
+if ($('aitest'))  $('aitest').addEventListener('click', () => testVision());
+if ($('aistart')) $('aistart').addEventListener('click', () => startAutoLoop());
+if ($('aistop'))  $('aistop').addEventListener('click', () => stopAutoLoop());
+loadVisionConfig();
 ['cfgscale','negative'].forEach(id => {
   const el = $(id);
   if (el) el.addEventListener('input', syncCfgNote);

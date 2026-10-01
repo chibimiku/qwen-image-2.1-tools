@@ -45,6 +45,22 @@ def main() -> int:
     check("Qwen3VLProcessor" in src or "AutoProcessor.from_pretrained" in src,
           "用 transformers 的 processor 分词")
     check("prompt_template_t2i" in src, "模板取自管线属性而非硬编码")
+
+    # 函数返回类型一致性：`_parse_gen_request` 返回 dict，调用处不能当元组解包。
+    # 这个错实测真的犯过 —— 端点直接 500（ValueError: too many values to unpack）。
+    m = re.search(r"async def _parse_gen_request\([^)]*\)\s*->\s*([^:]+):", src)
+    if m:
+        ret = m.group(1).strip()
+        calls = re.findall(r"^.*?=\s*await _parse_gen_request\(.*$", src, re.M)
+        bad = [c.strip() for c in calls if c.count("=") > 1 and ret.startswith("Dict")]
+        check(not bad, f"_parse_gen_request 返回 {ret}，调用处没有多值解包"
+                       + (f"（问题行：{bad}）" if bad else ""))
+    # 顺带：文件是否能过 ast（重复一次，防止后加的段落破坏语法）
+    try:
+        ast.parse(src)
+        check(True, "server.py 语法（复检）")
+    except SyntaxError as exc:
+        check(False, f"server.py 语法（复检）：{exc}")
     # 路由顺序：/v1/style-docs 必须在 /v1/style-docs/{name} 之前（否则索引页被参数路由吃掉）
     i_idx = src.find('@app.get("/v1/style-docs", response_class=HTMLResponse)')
     i_var = src.find('@app.get("/v1/style-docs/{name}")')
@@ -79,6 +95,42 @@ def main() -> int:
     used_ids = set(re.findall(r"\$\('([A-Za-z0-9_-]+)'\)", h))
     missing = sorted(u for u in used_ids if u not in ids)
     check(not missing, f"$() 引用的 id 都存在（缺：{missing}）")
+
+    # ── 「AI 自检」面板 ────────────────────────────────────────────────────
+    print("=== AI 自检面板 ===")
+    for needle in ('id="aiwrap"', 'id="aikey"', 'id="aibase"', 'id="aimodel"',
+                   'id="airounds"', 'id="aiscore"', 'id="aistart"',
+                   'function loadVisionConfig', 'function saveVisionConfig',
+                   'function testVision', 'function startAutoLoop',
+                   'function pollAutoLoop', "api('/v1/auto/start')",
+                   "api('/v1/vision/config')", "api('/v1/vision/test')"):
+        check(needle in h, f"存在 {needle}")
+
+    # key 只进不回显：**绝不**把 key 回填进输入框。
+    # 注意：`$('aikey').value = ''`（保存后清空）是允许的，甚至是必须的 ——
+    # 这里只把"赋成非空值"当成违规。
+    assigns = re.findall(r"\$\(\s*'aikey'\s*\)\s*\.value\s*=\s*([^;]+);", h)
+    assigns += re.findall(r"getElementById\(\s*['\"]aikey['\"]\s*\)\s*\.value\s*=\s*([^;]+);", h)
+    bad_assigns = [a for a in assigns if a.strip().strip("'\"") != ""]
+    check(not bad_assigns,
+          f"绝不把 key 回填到输入框（清空 {len(assigns) - len(bad_assigns)} 处没问题，"
+          f"赋非空值 {len(bad_assigns)} 处）")
+
+    # loadVisionConfig 只消费 has_key，不消费 api_key。
+    # 切片要切到**下一个 function 定义**为止，不能只取固定长度 —— 否则会把
+    # saveVisionConfig 里的 api_key 误算进来（这个坑踩过）。
+    seg = h.split("async function loadVisionConfig", 1)
+    if len(seg) > 1:
+        rest = seg[1]
+        nxt = re.search(r"\n(async\s+)?function\s", rest)
+        body = rest[:nxt.start()] if nxt else rest[:2000]
+        # 只查**代码用法**，不查注释 —— 注释里写"绝不碰 api_key"会被字面匹配误伤（踩过）
+        code = "\n".join(l.split("//")[0] for l in body.splitlines())
+        code = re.sub(r"/\*.*?\*/", "", code, flags=re.S)
+        check("api_key" not in code, "loadVisionConfig 不消费 api_key 字段")
+        check("has_key" in code, "loadVisionConfig 读 has_key 布尔值")
+    else:
+        check(False, "loadVisionConfig 存在")
 
     print()
     print(f"结论: {'通过' if not fails else '有 %d 项失败' % len(fails)}")

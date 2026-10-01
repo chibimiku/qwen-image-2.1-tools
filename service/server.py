@@ -34,6 +34,7 @@ import pathlib
 import random
 import re
 import secrets
+import shutil
 import sys
 import threading
 import time
@@ -129,6 +130,14 @@ LATENT_GIB_2K = float(os.environ.get("QWEN_LATENT_GIB_2K", "8.0"))
 # 二次项系数（G/MP²）：分模式校准，见 estimate_transient_gib 的说明
 LATENT_QUADRATIC_EDIT = float(os.environ.get("QWEN_LATENT_QUADRATIC_EDIT", "3.65"))
 LATENT_QUADRATIC_T2I = float(os.environ.get("QWEN_LATENT_QUADRATIC_T2I", "0.5"))
+
+# ── 自检-修订回路的运行时配置 ─────────────────────────────────────────────
+# 视觉 LLM 的 key 由用户从控制台填入，存服务端的 env 文件（mode 600），
+# **绝不回显到浏览器、绝不写进日志**。环境变量优先于文件，方便无人值守部署。
+# 默认值按 DeepSeek 官方文档（guides/vision）：模型 deepseek-flash，OpenAI 兼容端点。
+VISION_ENV_FILE = os.environ.get("QWEN_VISION_ENV_FILE",
+                                 os.path.join(_HERE, "..", "vision.env"))
+AUTO_RUN_DIR = os.environ.get("QWEN_AUTO_DIR", os.path.join(_HERE, "..", "auto-runs"))
 
 ASPECT_RATIOS = {
     "1:1": (2048, 2048), "4:3": (2400, 1792), "3:4": (1792, 2400),
@@ -2004,6 +2013,474 @@ async def _run_job(job_id: str, req: Dict[str, Any]):
         _jobs[job_id]["finished_at"] = int(time.time())
         # 任务结束就清掉中断信号，避免 request_id 复用时误伤下一次
         clear_cancel(req.get("request_id") or job_id)
+
+
+# --------------------------------------------------------------------------- #
+# 自检-修订回路（视觉 LLM 判定出图 → 不合格就改 prompt 重跑，最多 N 轮）
+#
+# 核心回路在 service/autoloop.py（那份可以脱离服务单测，见 tools/test_autoloop.py）；
+# 这里只做三件事：运行时配置的读写、把回路的同步回调桥到本服务的异步生成上、对外暴露接口。
+#
+# 关于 key 的处理（**安全约束，别改**）：
+#   · key 只存服务端，落在 QWEN_VISION_ENV_FILE（mode 600），该文件名在 .gitignore 里；
+#   · GET 只回 `has_key` 布尔值，**任何接口都不回显 key 本身**；
+#   · 日志与错误信息里也不出现 key（DeepSeekVision 只报状态码与响应体）。
+# --------------------------------------------------------------------------- #
+try:
+    from autoloop import (DEFAULT_BASE_URL, DEFAULT_MODEL, DECISIONS, REF_MODES,
+                          STYLE_TIERS, DeepSeekVision, LoopSettings, Revision,
+                          Verdict, VisionError, parse_revision, parse_verdict, run_loop)
+except ImportError:                                                     # noqa: BLE001
+    from .autoloop import (DEFAULT_BASE_URL, DEFAULT_MODEL, DECISIONS, REF_MODES,
+                           STYLE_TIERS, DeepSeekVision, LoopSettings, Revision,
+                           Verdict, VisionError, parse_revision, parse_verdict, run_loop)
+
+_VISION_LOCK = threading.Lock()
+_AUTO_LOCK = threading.Lock()
+AUTO_RUNS: Dict[str, Dict[str, Any]] = {}
+
+STYLE_SHORT_BASE = (
+    "Luminous anime illustration with a polished galgame CG finish: crisp clean linework, "
+    "rich saturated colour with soft pastel gradients, glowing particle sparkles, wide soft "
+    "bloom on highlights, dramatic rim light separating the subject from a deep contrasty "
+    "background, delicate fabric and hair highlights."
+)
+STYLE_SHORT_BOOST = (
+    "Premium galgame event CG rendering, dark-background portraiture: the subject is lit "
+    "against a deep, saturated, dark background, separated by a bright glowing rim light. "
+    "Strong bloom and soft lens glow on every highlight, dense floating glitter particles "
+    "and tiny bokeh stars scattered across the frame, gentle chromatic warmth in the light. "
+    "Crisp thin dark linework over luminous cel-shading with airbrushed gradient soft "
+    "shading, high-contrast specular highlights on hair strands and fabric folds, "
+    "iridescent pastel gradients in the shadows. Polished digital painting finish."
+)
+BAN_CLAUSE = (
+    "Do NOT copy from <image2>: its character, its pale blonde hair, its green eyes, its "
+    "white dress, its stockings or garters, its violin strings, bow or other instruments, "
+    "its constellation lines, floating stars, gems or sparkle props, its starfield stage "
+    "floor, its reclining pose, its diagonal poster composition or its frame."
+)
+LEDGER_CLAUSE = (
+    "Render this in the art style of the provided style reference, applying its technique "
+    "only. <image1> defines the character's identity - hair colour, hairstyle, eye colour, "
+    "facial features and outfit must be preserved exactly. <image2> is a STYLE SAMPLE ONLY: "
+    "borrow its linework, colouring method, light rendering and texture."
+)
+
+
+def extract_scene(prompt: str) -> str:
+    """取 prompt 的最后一段（角色圣经 + 场景）—— 修订只改这一段。"""
+    parts = [p.strip() for p in (prompt or "").split("\n\n") if p.strip()]
+    return parts[-1] if parts else ""
+
+
+def build_dual_prompt(scene: str, style_tier: str = "base") -> str:
+    """按四段结构拼 prompt：分工声明 / 样式词 / 禁止清单 / 场景段。"""
+    style = STYLE_SHORT_BOOST if style_tier == "boost" else STYLE_SHORT_BASE
+    return "\n\n".join([LEDGER_CLAUSE, style, BAN_CLAUSE, scene.strip()])
+
+
+def _vision_file_values() -> Dict[str, str]:
+    """读服务端 vision.env（gitignore，mode 600）。文件不存在就返回空。"""
+    out: Dict[str, str] = {}
+    p = os.path.abspath(VISION_ENV_FILE)
+    if not os.path.isfile(p):
+        return out
+    try:
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip().strip('"').strip("'")
+    except Exception:                                                   # noqa: BLE001
+        pass
+    return out
+
+
+def _vision_values() -> Dict[str, str]:
+    """合并配置：环境变量优先于文件。"""
+    f = _vision_file_values()
+    return {
+        "QWEN_VISION_BASE_URL": os.environ.get("QWEN_VISION_BASE_URL")
+                                or f.get("QWEN_VISION_BASE_URL") or DEFAULT_BASE_URL,
+        "QWEN_VISION_MODEL": os.environ.get("QWEN_VISION_MODEL")
+                             or f.get("QWEN_VISION_MODEL") or DEFAULT_MODEL,
+        "QWEN_VISION_DETAIL": os.environ.get("QWEN_VISION_DETAIL")
+                              or f.get("QWEN_VISION_DETAIL") or "high",
+        "QWEN_VISION_API_KEY": os.environ.get("QWEN_VISION_API_KEY")
+                               or f.get("QWEN_VISION_API_KEY") or "",
+        "QWEN_AUTO_MAX_ROUNDS": os.environ.get("QWEN_AUTO_MAX_ROUNDS")
+                                or f.get("QWEN_AUTO_MAX_ROUNDS") or "3",
+        "QWEN_AUTO_PASS_SCORE": os.environ.get("QWEN_AUTO_PASS_SCORE")
+                                or f.get("QWEN_AUTO_PASS_SCORE") or "7.0",
+    }
+
+
+def _vision_public_config() -> Dict[str, Any]:
+    """给浏览器的配置视图 —— **不含 key**，只有 has_key。"""
+    v = _vision_values()
+    try:
+        rounds = int(v["QWEN_AUTO_MAX_ROUNDS"])
+    except Exception:                                                   # noqa: BLE001
+        rounds = 3
+    try:
+        score = float(v["QWEN_AUTO_PASS_SCORE"])
+    except Exception:                                                   # noqa: BLE001
+        score = 7.0
+    return {
+        "base_url": v["QWEN_VISION_BASE_URL"],
+        "model": v["QWEN_VISION_MODEL"],
+        "detail": v["QWEN_VISION_DETAIL"],
+        "has_key": bool(v["QWEN_VISION_API_KEY"]),
+        "max_rounds": max(1, min(rounds, 8)),
+        "pass_score": max(0.0, min(score, 10.0)),
+        "vision_modes": REF_MODES,
+        "style_tiers": STYLE_TIERS,
+        "env_file": os.path.basename(VISION_ENV_FILE),   # 只给文件名，不给路径
+    }
+
+
+def _write_vision_env(updates: Dict[str, str]) -> None:
+    """把配置写进 vision.env（mode 600）。保留文件里其它已有键。"""
+    p = os.path.abspath(VISION_ENV_FILE)
+    cur = _vision_file_values()
+    for k, v in updates.items():
+        if v is None:
+            continue
+        if v == "" and k == "QWEN_VISION_API_KEY":
+            continue                    # 空 key 表示"不改"，避免误清掉已存的
+        cur[k] = v
+    lines = ["# 自检回路的视觉 API 配置（自动生成）。本文件含密钥，**不要提交**。",
+             "# 文件名已在 .gitignore 里；权限 600。环境变量优先于本文件。"]
+    for k in ("QWEN_VISION_BASE_URL", "QWEN_VISION_MODEL", "QWEN_VISION_DETAIL",
+              "QWEN_VISION_API_KEY", "QWEN_AUTO_MAX_ROUNDS", "QWEN_AUTO_PASS_SCORE"):
+        if k in cur:
+            lines.append(f"{k}={cur[k]}")
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, p)                  # 原子替换，避免半截文件
+
+
+def _refs_to_mode(n_images: int) -> str:
+    """按请求里参考图的数量推它的组合模式（用于回路状态初始化）。"""
+    return {0: "none", 1: "char", 2: "char+style"}.get(n_images, "char+style")
+
+
+@app.get("/v1/vision/config")
+async def get_vision_config(request: Request):
+    """读自检回路配置。**只回 has_key，不回 key 本身。**"""
+    _check_auth(request)
+    return _vision_public_config()
+
+
+@app.post("/v1/vision/config")
+async def set_vision_config(request: Request):
+    """写自检回路配置。
+
+    body: {base_url?, model?, detail?, api_key?, max_rounds?, pass_score?}
+    `api_key` 传空串表示"不修改"，这样前端可以在不回显 key 的前提下只改其它字段。
+    也接受 `clear_key: true` 显式清空。
+    """
+    _check_auth(request)
+    b = await request.json()
+    upd: Dict[str, str] = {}
+    if b.get("base_url"):
+        upd["QWEN_VISION_BASE_URL"] = str(b["base_url"]).strip().rstrip("/")
+    if b.get("model"):
+        upd["QWEN_VISION_MODEL"] = str(b["model"]).strip()
+    if b.get("detail"):
+        d = str(b["detail"]).strip().lower()
+        if d in ("low", "high", "original", "auto"):
+            upd["QWEN_VISION_DETAIL"] = d
+    if b.get("api_key"):
+        upd["QWEN_VISION_API_KEY"] = str(b["api_key"]).strip()
+    if b.get("max_rounds") is not None:
+        try:
+            upd["QWEN_AUTO_MAX_ROUNDS"] = str(max(1, min(int(b["max_rounds"]), 8)))
+        except Exception:                                               # noqa: BLE001
+            pass
+    if b.get("pass_score") is not None:
+        try:
+            upd["QWEN_AUTO_PASS_SCORE"] = str(max(0.0, min(float(b["pass_score"]), 10.0)))
+        except Exception:                                               # noqa: BLE001
+            pass
+    with _VISION_LOCK:
+        if b.get("clear_key"):
+            p = os.path.abspath(VISION_ENV_FILE)
+            cur = _vision_file_values()
+            cur.pop("QWEN_VISION_API_KEY", None)
+            lines = [f"{k}={v}" for k, v in cur.items()]
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + ("\n" if lines else ""))
+            os.chmod(p, 0o600)
+        elif upd:
+            _write_vision_env(upd)
+    print("[vision] 配置已更新（不回显 key）", flush=True)
+    return _vision_public_config()
+
+
+@app.post("/v1/vision/test")
+async def test_vision(request: Request):
+    """连通性自检：发一个最小的纯文本请求，确认端点/模型/key 三者可用。
+
+    刻意**不发图** —— 只为验证凭据，省 token、也避免把出图内容外传。
+    """
+    _check_auth(request)
+    v = _vision_values()
+    if not v["QWEN_VISION_API_KEY"]:
+        raise HTTPException(400, "还没有配置视觉 API key")
+    try:
+        client = DeepSeekVision(v["QWEN_VISION_API_KEY"], v["QWEN_VISION_BASE_URL"],
+                                v["QWEN_VISION_MODEL"], v["QWEN_VISION_DETAIL"], timeout=60)
+        txt = client.chat("回复两个字：可用", [], max_tokens=16)
+        return {"ok": True, "model": v["QWEN_VISION_MODEL"],
+                "base_url": v["QWEN_VISION_BASE_URL"], "reply": txt.strip()[:80]}
+    except VisionError as exc:
+        return {"ok": False, "error": str(exc)[:300]}
+    except Exception as exc:                                            # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+
+
+# --------------------------------------------------------------------------- #
+# 自检-修订回路的执行器
+#
+# 回路本身（autoloop.run_loop）是同步的，出图与判定都要在这里接上：
+#   · 出图：复用本服务的 _generate（异步、受 _gpu_lock 保护）→ 用 run_coroutine_threadsafe 桥接
+#   · 判定/修订：视觉 API 是阻塞 HTTP，直接在后台线程里跑，不占事件循环
+#
+# 每一步都落盘：每轮的图 + 判定 + 修订记录写进 AUTO_RUNS/<job>/，
+# 事后能回答"为什么第 2 轮把样式词换了"。
+# --------------------------------------------------------------------------- #
+def _auto_run_dir(job_id: str) -> str:
+    d = os.path.join(AUTO_RUN_DIR, job_id)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _save_refs(run_dir: str, images: List[Any], names: List[Any]) -> List[str]:
+    """把本次用的参考图存一份到 run 目录，保证这轮实验可复现。"""
+    out = []
+    for i, im in enumerate(images or []):
+        try:
+            nm = (names[i] if i < len(names) and names[i] else f"ref{i+1}") or f"ref{i+1}"
+            nm = re.sub(r"[^A-Za-z0-9._-]", "_", str(nm))[:40]
+            p = os.path.join(run_dir, f"ref{i+1}-{nm}.png")
+            im.convert("RGB").save(p)
+            out.append(p)
+        except Exception:                                               # noqa: BLE001
+            continue
+    return out
+
+
+def _auto_worker(job_id: str, req0: Dict[str, Any], loop: asyncio.AbstractEventLoop) -> None:
+    """在后台线程里跑完整条回路。所有状态写进 AUTO_RUNS[job_id]。"""
+    job = AUTO_RUNS[job_id]
+    run_dir = _auto_run_dir(job_id)
+
+    def log(msg: str) -> None:
+        with _AUTO_LOCK:
+            job["log"].append(f"{time.strftime('%H:%M:%S')} {msg}")
+            job["log"] = job["log"][-400:]
+
+    def generate(state: Dict[str, Any]) -> Dict[str, Any]:
+        req = dict(req0)
+        req["prompt"] = build_dual_prompt(state["scene"], state.get("style_tier", "base"))
+        req["seed"] = state.get("seed")
+        # 参考图按模式裁剪：none=不带图，char=第一张，char+style=两张都带
+        want = {"none": 0, "char": 1, "char+style": 2}.get(state.get("refs", "char+style"), 2)
+        all_imgs = list(req0.get("images") or [])
+        all_names = list(req0.get("image_names") or [])
+        req["images"] = all_imgs[:want]
+        req["image_names"] = all_names[:want]
+        if want == 1 and len(all_imgs) >= 2:
+            # 只要角色图时，取第一张（约定：上传顺序 = 角色图、画风图）
+            req["images"] = all_imgs[:1]
+            req["image_names"] = all_names[:1]
+        req["_seed_given_override"] = state.get("seed") is not None
+        fut = asyncio.run_coroutine_threadsafe(_generate(req), loop)
+        items = fut.result(timeout=3600)
+
+        saved = []
+        for i, it in enumerate(items or []):
+            src = it.get("path") or it.get("saved_path")
+            dst = os.path.join(run_dir, f"r{state.get('_round', 0):02d}-{i+1}.png")
+            if src and os.path.isfile(src):
+                shutil.copy2(src, dst)
+                saved.append(dst)
+        return {"images": saved, "meta": {"items": len(items or []), "req_images": want}}
+
+    v = _vision_values()
+    client = DeepSeekVision(v["QWEN_VISION_API_KEY"], v["QWEN_VISION_BASE_URL"],
+                            v["QWEN_VISION_MODEL"], v["QWEN_VISION_DETAIL"])
+
+    def judge(d: Dict[str, Any]) -> Verdict:
+        state = d["state"]
+        imgs = d["result"].get("images") or []
+        if not imgs:
+            return Verdict(False, 0.0, [], "?", "没有出图可供判定")
+        prompt = build_dual_prompt(state["scene"], state.get("style_tier", "base"))
+        bible = (req0.get("character_bible") or "").strip()
+        return client.judge(prompt, [pathlib.Path(p) for p in imgs], bible)
+
+    def revise(state: Dict[str, Any], verdict: Verdict, rnd: int) -> Revision:
+        prompt = build_dual_prompt(state["scene"], state.get("style_tier", "base"))
+        return client.revise(prompt, verdict, rnd)
+
+    settings = LoopSettings(
+        max_rounds=max(1, min(int(job["settings"]["max_rounds"]), 8)),
+        pass_score=float(job["settings"]["pass_score"]),
+    )
+
+    def wrapped_generate(state: Dict[str, Any]) -> Dict[str, Any]:
+        # 停止请求在**每轮开头**检查：不硬中断正在跑的出图，
+        # 但要保证点了停止后不会再起下一轮（否则用户以为停了、其实还在烧 GPU）
+        with _AUTO_LOCK:
+            if job.get("stop_requested"):
+                raise StopIteration()      # run_loop 据此干净收尾，不当失败记
+        state["_round"] = (state.get("_round") or 0) + 1
+        with _AUTO_LOCK:
+            job["round"] = state["_round"]
+        # 出图这一行由 run_loop 自己打（它知道轮次与状态），这里不重复打，
+        # 否则日志里每轮都会出现两行一模一样的「出图：…」（实测踩过）
+        out = generate(state)
+        refs = _save_refs(run_dir, req0.get("images"), req0.get("image_names"))
+        if refs and state["_round"] == 1:
+            with _AUTO_LOCK:
+                job["refs_saved"] = refs
+        return out
+
+    try:
+        result = run_loop(generate=wrapped_generate, judge=judge, revise=revise,
+                          initial=dict(job["state"]), settings=settings, log=log)
+        with _AUTO_LOCK:
+            job["result"] = result
+            job["status"] = "done" if result.get("passed") else "finished_unpassed"
+            job["finished_at"] = int(time.time())
+        log(f"回路结束：{result['rounds']} 轮，通过={result['passed']}，"
+            f"最佳 score={result['best_score']}")
+    except Exception as exc:                                            # noqa: BLE001
+        with _AUTO_LOCK:
+            job["status"] = "failed"
+            job["error"] = f"{type(exc).__name__}: {exc}"
+            job["finished_at"] = int(time.time())
+        log(f"回路失败：{type(exc).__name__}: {exc}")
+
+
+@app.post("/v1/auto/start", status_code=202)
+async def auto_start(request: Request):
+    """开一条自检-修订回路。
+
+    multipart：与 /v1/images/generations 同一套字段（prompt 会被拆出场景段当作初稿），
+    外加 max_rounds / pass_score。参考图按上传顺序喂：第一张=角色图，第二张=画风图。
+    """
+    _check_auth(request)
+    v = _vision_values()
+    if not v["QWEN_VISION_API_KEY"]:
+        raise HTTPException(400, "还没配置视觉 API key：请先在上面的「AI 自检」里填好并测试")
+
+    req = await _parse_gen_request(request)      # 返回的是 dict，不是元组
+    images = list(req.get("images") or [])
+    if not images:
+        raise HTTPException(400, "自检回路至少要一张参考图（第一张当角色图）")
+
+    ctype = (request.headers.get("content-type") or "").lower()
+    # 这两个字段不在 _parse_gen_request 里，从原始表单再取一次
+    max_rounds, pass_score, bible = 3, 7.0, ""
+    if ctype.startswith("multipart/") or ctype.startswith("application/x-www-form-urlencoded"):
+        form = await request.form()
+        try:
+            max_rounds = max(1, min(int(form.get("max_rounds") or 3), 8))
+        except Exception:                                               # noqa: BLE001
+            pass
+        try:
+            pass_score = max(0.0, min(float(form.get("pass_score") or 7.0), 10.0))
+        except Exception:                                               # noqa: BLE001
+            pass
+        bible = str(form.get("character_bible") or "")
+
+    job_id = "auto_" + uuid.uuid4().hex[:10]
+    req["character_bible"] = bible
+    state = {
+        "scene": extract_scene(req.get("prompt", "")),
+        "style_tier": "base",
+        "refs": _refs_to_mode(len(images)),
+        "seed": _norm_seed(req.get("seed")),
+        "_round": 0,
+    }
+    with _AUTO_LOCK:
+        AUTO_RUNS[job_id] = {
+            "job_id": job_id, "status": "running", "round": 0,
+            "settings": {"max_rounds": max_rounds, "pass_score": pass_score},
+            "state": state, "log": [], "result": None, "error": None,
+            "created_at": int(time.time()), "run_dir": _auto_run_dir(job_id),
+            "n_refs": len(images),
+        }
+    loop = asyncio.get_running_loop()
+    threading.Thread(target=_auto_worker, args=(job_id, req, loop),
+                     name=f"auto-{job_id}", daemon=True).start()
+    print(f"[auto] 启动 {job_id}：{max_rounds} 轮上限，pass_score={pass_score}", flush=True)
+    return {"job_id": job_id, "status": "running", "max_rounds": max_rounds}
+
+
+@app.get("/v1/auto/status/{job_id}")
+async def auto_status(job_id: str, request: Request):
+    """查回路进度。含逐轮日志、判定、修订记录与产物路径。"""
+    _check_auth(request)
+    with _AUTO_LOCK:
+        job = AUTO_RUNS.get(job_id)
+        if not job:
+            raise HTTPException(404, f"没有这个回路任务：{job_id}")
+        snap = json.loads(json.dumps(job, ensure_ascii=False, default=str))
+    return snap
+
+
+@app.get("/v1/auto/list")
+async def auto_list(request: Request):
+    """近期回路任务（最多 20 条）。"""
+    _check_auth(request)
+    with _AUTO_LOCK:
+        items = sorted(AUTO_RUNS.values(), key=lambda j: j.get("created_at", 0),
+                       reverse=True)[:20]
+        return {"jobs": [{"job_id": j["job_id"], "status": j["status"],
+                          "round": j.get("round"), "created_at": j.get("created_at"),
+                          "n_refs": j.get("n_refs"),
+                          "passed": (j.get("result") or {}).get("passed"),
+                          "best_score": (j.get("result") or {}).get("best_score")}
+                         for j in items]}
+
+
+@app.get("/v1/auto/file/{job_id}/{name}")
+async def auto_file(job_id: str, name: str, request: Request):
+    """取回路某轮的出图。路径只允许落在该任务的 run 目录内，防目录穿越。"""
+    _check_auth(request)
+    with _AUTO_LOCK:
+        job = AUTO_RUNS.get(job_id)
+    if not job:
+        raise HTTPException(404, "没有这个回路任务")
+    if "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(400, "非法文件名")
+    p = os.path.abspath(os.path.join(job["run_dir"], name))
+    if not p.startswith(os.path.abspath(job["run_dir"]) + os.sep):
+        raise HTTPException(400, "路径越界")
+    if not os.path.isfile(p):
+        raise HTTPException(404, "没有这个文件")
+    return FileResponse(p, media_type="image/png")
+
+
+@app.post("/v1/auto/stop/{job_id}")
+async def auto_stop(job_id: str, request: Request):
+    """标记停止。回路在每轮开头检查这个标志，所以不会硬中断正在跑的出图。"""
+    _check_auth(request)
+    with _AUTO_LOCK:
+        job = AUTO_RUNS.get(job_id)
+        if not job:
+            raise HTTPException(404, f"没有这个回路任务：{job_id}")
+        job["stop_requested"] = True
+    return {"job_id": job_id, "stop_requested": True}
 
 
 @app.post("/v1/jobs", status_code=202, dependencies=[Depends(require_key)])
