@@ -7,6 +7,10 @@ tunnel.conf
 .qwenkey
 *.key
 *.pem
+# 自检回路用的视觉 LLM 配置：含 API key，服务端自动生成，**绝不入库**
+vision.env
+# 自检回路的运行产物（每轮的图 + 判定 + 修订记录）
+auto-runs/
 
 # Python
 __pycache__/
@@ -65,6 +69,8 @@ exp/galgame-cg-20260928/out/*
 !exp/galgame-cg-20260928/out/fix-*.png
 !exp/galgame-cg-20260928/manifest.jsonl
 !exp/galgame-cg-20260928/README.md
+!exp/galgame-cg-20260928/DEFECTS.md
+!exp/galgame-cg-20260928/FIX-REPORT.md
 !exp/galgame-cg-20260928/autostart-verify.txt
 !exp/galgame-cg-20260928/run.py
 !exp/galgame-cg-20260928/verify.py
@@ -72,9 +78,28 @@ exp/galgame-cg-20260928/out/*
 !exp/galgame-cg-20260928/sheets.py
 !exp/galgame-cg-20260928/zoom.py
 !exp/galgame-cg-20260928/scan_defects.py
-!exp/galgame-cg-20260928/DEFECTS.md
+!exp/galgame-cg-20260928/prompts.py
+!exp/galgame-cg-20260928/prompts_fix.py
+!exp/galgame-cg-20260928/check_fix_prompts.py
+!exp/galgame-cg-20260928/run_fix.py
+!exp/galgame-cg-20260928/sheets_fix.py
+!exp/galgame-cg-20260928/merge_qa.py
+!exp/galgame-cg-20260928/batch_fix.py
+!exp/galgame-cg-20260928/fixed-prompts.json
+!exp/galgame-cg-20260928/run-fix-log.jsonl
 !exp/galgame-cg-20260928/sheets-final.png
 !exp/galgame-cg-20260928/compare-*.png
+!exp/galgame-cg-20260928/sheets-fixed2*.png
+# 修复产物：这批是"要用的成品"，图入库
+!exp/galgame-cg-20260928/fixed-2/
+exp/galgame-cg-20260928/fixed-2/*
+!exp/galgame-cg-20260928/fixed-2/*.png
+# 质检结果（文本，入库）
+!exp/galgame-cg-20260928/qa/
+exp/galgame-cg-20260928/qa/*
+!exp/galgame-cg-20260928/qa/result-*.jsonl
+!exp/galgame-cg-20260928/qa/merged.json
+!exp/galgame-cg-20260928/qa/merged.csv
 # 缺陷排查的检查表与证据放大图（只留 3 张作证据，其余过程图不入库）
 !exp/galgame-cg-20260928/sheets-1-bracket.png
 !exp/galgame-cg-20260928/sheets-7-正片-上.png

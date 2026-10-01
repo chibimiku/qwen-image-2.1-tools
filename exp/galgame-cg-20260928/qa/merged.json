@@ -1,0 +1,593 @@
+[
+  {
+    "name": "story-09-holding-hands",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "A1",
+        "severity": "P2",
+        "where": "画面右侧，伸向镜头的手",
+        "what": "四指全部向下弯且指尖粘在一起，关节弯曲方向不自然；手掌与暗背景糊在一起、轮廓不清",
+        "confident": "high"
+      },
+      {
+        "code": "B7",
+        "severity": "P3",
+        "where": "同上",
+        "what": "prompt 要求 fingers extended toward the camera（伸向镜头、递手的姿态），实际是手腕下垂、指尖朝下的放松手势，'伸手牵手'的意图没表达出来",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "手部结构糊成一团，整体可读但为最弱项",
+      "伸手那只手结构可疑且动作语义没做到"
+    ],
+    "sources": [
+      "result-batchA.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p2",
+    "ok": false
+  },
+  {
+    "name": "story-10-fireworks",
+    "people_count": 1,
+    "defects": [],
+    "notes": [
+      "双手交握、烟花夜与人群虚化都在，无可见结构硬伤"
+    ],
+    "sources": [
+      "result-batchA.jsonl"
+    ],
+    "seen_ok": true,
+    "worst": "none",
+    "ok": true
+  },
+  {
+    "name": "fix-01-boutique",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "A8",
+        "severity": "P2",
+        "where": "镜中像 ≈(760,330)-(960,455)",
+        "what": "镜中人的手停在腰间且没有实体那只放在裙子上的手，两边姿态对不上，不像同一姿势的镜面反射",
+        "confident": "medium"
+      }
+    ],
+    "notes": [
+      "镜面反射与本体姿态不一致；服装/鞋/道具齐全"
+    ],
+    "sources": [
+      "result-batchA.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p2",
+    "ok": false
+  },
+  {
+    "name": "fix-04-icecream",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "B6",
+        "severity": "P1",
+        "where": "画面上半整片天空 ≈(0,0)-(1600,540)",
+        "what": "标注是白天晴天，天空却是无细节深黑，只有人物身上有日光高光，与码头阳光自相矛盾",
+        "confident": "medium"
+      },
+      {
+        "code": "C2",
+        "severity": "P2",
+        "where": "同上天空区域",
+        "what": "大面积深黑无细节",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "白天被画成夜景式黑背景，人物/鞋/道具本身没坏"
+    ],
+    "sources": [
+      "result-batchA.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p1",
+    "ok": false
+  },
+  {
+    "name": "fix-06-sunset-bridge",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "A8",
+        "severity": "P2",
+        "where": "画面中右 ≈(700,420)-(780,470)",
+        "what": "两手是搭在裙子上，右手指尖陷进裙褶呈糊状，看不出握住栏杆",
+        "confident": "medium"
+      }
+    ],
+    "notes": [
+      "姿态与提示「双手扶栏杆」不符，栏杆透视本身自洽"
+    ],
+    "sources": [
+      "result-batchA.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p2",
+    "ok": false
+  },
+  {
+    "name": "boost-03-street",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "A8",
+        "severity": "P2",
+        "where": "画面中左 ≈(640,280)-(760,380) 购物袋",
+        "what": "手/手腕在袋口后方只有指尖露出，没有绕住任何提手，袋子像贴在手上没被握住",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "提袋握持关系不成立，其余完好"
+    ],
+    "sources": [
+      "result-batchA.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p2",
+    "ok": false
+  },
+  {
+    "name": "boost-08-closeup",
+    "people_count": 1,
+    "defects": [],
+    "notes": [
+      "面部对称、发饰与瞳色到位，仅左侧发丝渲染偏薄（不构成缺陷）"
+    ],
+    "sources": [
+      "result-batchA.jsonl"
+    ],
+    "seen_ok": true,
+    "worst": "none",
+    "ok": true
+  },
+  {
+    "name": "story-02-cafe",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "B7",
+        "severity": "P2",
+        "where": "画面中部，持杯处",
+        "what": "prompt 要求 both hands wrapped around a glass cup，实际只有一只手举杯，另一条手臂垂在身侧未参与",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "身份/服装/草莓蛋糕/街景都对，只有『双手捧杯』的动作没做到",
+      "握杯的手四指在前拇指在远侧，握法正确；唯一问题是没按'双手'画"
+    ],
+    "sources": [
+      "result-batchB.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p2",
+    "ok": false
+  },
+  {
+    "name": "story-03-street",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "A8",
+        "severity": "P1",
+        "where": "画面中右，右手拎购物袋处",
+        "what": "四指指尖与提绳融为一体，没有结构分隔，看不出手指是绕过提绳还是与它焊在一起",
+        "confident": "high"
+      },
+      {
+        "code": "C3",
+        "severity": "P2",
+        "where": "画面下中 ≈(780,740)-(960,835) 两只鞋的鞋跟与后帮",
+        "what": "鞋跟被画成半透明玻璃块、外轮廓重影错位，鞋后帮结构不可辨",
+        "confident": "medium"
+      }
+    ],
+    "notes": [
+      "服装/购物袋/街道都对，握提绳的手与鞋跟是问题",
+      "构图与服装都对，问题集中在握提绳的手"
+    ],
+    "sources": [
+      "result-batchB.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p1",
+    "ok": false
+  },
+  {
+    "name": "story-07-ferris-wheel",
+    "people_count": 1,
+    "defects": [],
+    "notes": [
+      "手贴窗、轿厢夜景观、双金扣与蓝→薄荷渐变裙摆都在，未发现可确认缺陷",
+      "本批唯一干净的一张：挥手的手五指清晰、拇指独立，两条手臂都在，服装与夜景都对"
+    ],
+    "sources": [
+      "result-batchB.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": true,
+    "worst": "none",
+    "ok": true
+  },
+  {
+    "name": "story-11-rooftop",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "A1",
+        "severity": "P1",
+        "where": "画面中部偏左，抬至脸侧的手",
+        "what": "手指成一团、看不出指节与指数量，手部整体像一坨不分瓣的形状",
+        "confident": "high"
+      },
+      {
+        "code": "B3",
+        "severity": "P2",
+        "where": "肩部与手臂",
+        "what": "prompt 要求 white knit cardigan（白色针织开衫），实际画成长款白色大衣/披风，材质与长度都不符",
+        "confident": "high"
+      },
+      {
+        "code": "B7",
+        "severity": "P2",
+        "where": "画面中部，人物与身后低栏杆之间 ≈(600,480)-(1200,620)",
+        "what": "要求倚在低栏杆上，实际直立站在栏杆前一两米，双手（一在胸口一在身侧）都没接触栏杆",
+        "confident": "medium"
+      },
+      {
+        "code": "C3",
+        "severity": "P2",
+        "where": "画面下中偏右 ≈(850,745)-(960,835) 右脚鞋跟",
+        "what": "鞋跟渲染成半透明玻璃块并带重影错位轮廓，结构不可辨",
+        "confident": "medium"
+      }
+    ],
+    "notes": [
+      "白开衫/夜景/渐变裙摆都在，倚栏杆姿势缺失、右脚鞋跟渲染有问题",
+      "开衫画错、抬到脸侧的手糊成一团"
+    ],
+    "sources": [
+      "result-batchB.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p1",
+    "ok": false
+  },
+  {
+    "name": "story-12-goodnight",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "A1",
+        "severity": "P1",
+        "where": "画面中部，双手提购物袋处",
+        "what": "两手手指粘连成一团，指节不可辨，左右手交接处没有分界",
+        "confident": "high"
+      },
+      {
+        "code": "C3",
+        "severity": "P2",
+        "where": "画面下 ≈(760,700)-(990,835) 双脚鞋跟与鞋后帮",
+        "what": "鞋跟与后帮画成半透明玻璃块、轮廓重影错位，鞋结构读不清",
+        "confident": "medium"
+      },
+      {
+        "code": "B5",
+        "severity": "P3",
+        "where": "同上",
+        "what": "手提袋是一个无结构的扁块，没有提手与包身的区分",
+        "confident": "medium"
+      }
+    ],
+    "notes": [
+      "路灯夜景/双手提袋/内撇的脚都对，鞋跟渲染有问题",
+      "提袋的手崩坏；脸上黄绿斑放大后确认是发丝，不算缺陷"
+    ],
+    "sources": [
+      "result-batchB.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p1",
+    "ok": false
+  },
+  {
+    "name": "story-01-boutique",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "C1",
+        "severity": "P1",
+        "where": "画面左半 + 底部 + 右上，约占全图一半",
+        "what": "大面积纯白无细节：左半与底部完全死白，只有中央一条竖带（镜子与其周围）有内容。实测纯白像素 48.33%，整行死白 307 行、整列 765 列",
+        "confident": "high"
+      },
+      {
+        "code": "A8",
+        "severity": "P2",
+        "where": "画面中部，镜面边缘处两只手相接的位置",
+        "what": "本体与镜中倒影的两只手在镜框边缘几乎相接，指节糊在一起，看不出哪只手属于谁",
+        "confident": "high"
+      },
+      {
+        "code": "B5",
+        "severity": "P2",
+        "where": "镜子本身",
+        "what": "道具生成不完整：镜框是一堆碎片化的木条、下缘切进地板，立在那里不合物理；镜面倒影里的人物朝向与本体不一致（本体背对镜子，倒影却是正脸朝观众）",
+        "confident": "medium"
+      },
+      {
+        "code": "C1",
+        "severity": "P2",
+        "where": "整幅，最严重在右半幅 ≈(950,0)-(1600,896) 与左侧背景",
+        "what": "大面积过曝死白：全幅约 53% 像素 RGB>245，右半幅近乎纯白、衣架只剩模糊色块，无细节",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "画中 1 人 + 镜中倒影（同一人，镜面一致），主要问题是整体过曝死白",
+      "镜子勉强画出来了但结构不成立，画面近半是死白"
+    ],
+    "sources": [
+      "result-batchB.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p1",
+    "ok": false
+  },
+  {
+    "name": "story-05-park",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "A3",
+        "severity": "P1",
+        "where": "画面中下，臀部/大腿与长凳座面接触处",
+        "what": "臀部与大腿位于座面之'前'而非坐在其上：橙色凳面从腿后穿过，腿像悬在凳前悬空，裙摆下缘与腿的接触关系不成立",
+        "confident": "high"
+      },
+      {
+        "code": "A7",
+        "severity": "P2",
+        "where": "画面中下，裙下胯部",
+        "what": "胯部与内侧大腿结构糊成一体，轮廓无法解读",
+        "confident": "medium"
+      },
+      {
+        "code": "C3",
+        "severity": "P2",
+        "where": "画面中上 ≈(690,110)-(800,230) 举起的右手手掌",
+        "what": "掌面与指根叠着一层半透明的白色手指轮廓重影，掌部结构发虚（10 倍放大才明显）",
+        "confident": "low"
+      }
+    ],
+    "notes": [
+      "长椅/落叶/双金扣/玛丽珍都对，仅手部一处低置信重影疑点",
+      "坐姿的承重关系不成立，是本批最明确的结构缺陷之一"
+    ],
+    "sources": [
+      "result-batchB.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p1",
+    "ok": false
+  },
+  {
+    "name": "story-04-icecream",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "C1",
+        "severity": "P1",
+        "where": "画面右半 + 左下 + 右下",
+        "what": "大面积纯白无细节，只有中央竖带有内容。实测纯白像素 43.85%，整行 225、整列 596",
+        "confident": "high"
+      },
+      {
+        "code": "C1",
+        "severity": "P2",
+        "where": "画面右侧 x≈1200–1600 整条竖带，以及左上天空与水面",
+        "what": "大面积死白无细节：右 1/4 近乎纯白、仅见一条极淡竖直接缝，全图 50.9% 像素亮度≥250，天空与水面细节全部丢失",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "人物与服装正确，问题是全图严重过曝、右侧一条死白带",
+      "冰淇淋与鞋子都画对了，但画面近半死白"
+    ],
+    "sources": [
+      "result-batchC.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p1",
+    "ok": false
+  },
+  {
+    "name": "story-06-sunset-bridge",
+    "people_count": 2,
+    "defects": [
+      {
+        "code": "A4",
+        "severity": "P0",
+        "where": "画面中左，远景少女的脚 x≈660–810 y≈800–890",
+        "what": "双脚踩在栏杆横杆顶面上，横杆外侧与下方即水面，脚下没有可见的桥面（与近景少女搭手的是同一根横杆）",
+        "confident": "low"
+      },
+      {
+        "code": "B1",
+        "severity": "P0",
+        "where": "画面中左（桥上小版本）+ 右侧（前景大版本）",
+        "what": "同一角色出现两次：小版本站在桥上、大版本在右侧前景，两者发饰都是白花，是同一个人的两个副本",
+        "confident": "high"
+      },
+      {
+        "code": "C4",
+        "severity": "P3",
+        "where": "画面中左（远景小图 x≈560–900）与画面右（近景 x≈930–1500）",
+        "what": "同一个角色被画了两次：相同的靛蓝发+侧丸子+白花发饰+蓝背带裙+蓝玛丽珍鞋，一大一小同框",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "同框出现两个同一角色，且远景那个站在栏杆上（该条为低置信）",
+      "整张作废级：同一个人被画了两遍"
+    ],
+    "sources": [
+      "result-batchC.jsonl",
+      "result-mine.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p0",
+    "ok": false
+  },
+  {
+    "name": "story-08-closeup",
+    "people_count": 1,
+    "defects": [],
+    "notes": [
+      "特写干净：五官对称、发饰与服装符合设定、背景虚化正常，未发现可报缺陷"
+    ],
+    "sources": [
+      "result-batchC.jsonl"
+    ],
+    "seen_ok": true,
+    "worst": "none",
+    "ok": true
+  },
+  {
+    "name": "seed-42",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "C3",
+        "severity": "P2",
+        "where": "画面左中，搭在栏杆上的手 x≈470–575 y≈345–405",
+        "what": "手部糊成一团，指节与手指数量不可辨（原图该手约 105px 宽，8x 放大后仍只见 2–3 个模糊凸起）",
+        "confident": "medium"
+      }
+    ],
+    "notes": [
+      "姿势/服装/场景都对，唯一可报的是搭在栏杆上的那只手结构糊"
+    ],
+    "sources": [
+      "result-batchC.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p2",
+    "ok": false
+  },
+  {
+    "name": "seed-1234",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "B7",
+        "severity": "P2",
+        "where": "全身，画面中 x≈650–950",
+        "what": "要求的『靠在栏杆上、双手交叠搭在栏上、望向水面』没有画出：她直立面向镜头，右手抬到胸前领口，左手垂在裙侧、并未搭在横杆上",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "人物数量与服装正确，但姿态与要求的靠栏动作不符"
+    ],
+    "sources": [
+      "result-batchC.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p2",
+    "ok": false
+  },
+  {
+    "name": "seed-20260927",
+    "people_count": 2,
+    "defects": [
+      {
+        "code": "B1",
+        "severity": "P0",
+        "where": "画面左中 x≈380–760 与画面右 x≈940–1400",
+        "what": "画面里有两个人：左侧靛蓝发少女与右侧金发少女；该场景只要求女主角一人",
+        "confident": "high"
+      },
+      {
+        "code": "B8",
+        "severity": "P1",
+        "where": "画面右 x≈980–1400",
+        "what": "第二个人是画风参考图角色的泄露：白金长发、绿眼、白色露肩裙、蓝色蝴蝶结发饰、深色吊带袜，逐条命中 prompt 的禁用清单",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "右侧金发人物即画风参考图角色泄露，B1 与 B8 叠加"
+    ],
+    "sources": [
+      "result-batchC.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p0",
+    "ok": false
+  },
+  {
+    "name": "control-02-cafe",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "B8",
+        "severity": "P1",
+        "where": "画面右中背景暗墙 x≈1080–1500 y≈80–560，并延伸到画面右下地面",
+        "what": "暗墙上出现画风参考图的星座连线（细线把星点连成折线星图），地面也是星空/星河质感，属参考图 starfield 元素泄露",
+        "confident": "high"
+      }
+    ],
+    "notes": [
+      "人物/道具/场景齐全，问题是背景把参考图的星座连线带了进来"
+    ],
+    "sources": [
+      "result-batchC.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p1",
+    "ok": false
+  },
+  {
+    "name": "control-03-street",
+    "people_count": 1,
+    "defects": [
+      {
+        "code": "C3",
+        "severity": "P3",
+        "where": "画面右中，握袋子的拳内 x≈945–975 y≈445–475",
+        "what": "握拳里夹着一小块与裙子同色的蓝色块，既不属于手也不属于棕色纸袋与提绳，疑为色渗/贴图残留",
+        "confident": "low"
+      }
+    ],
+    "notes": [
+      "整体达标（身份/服装/道具/玛丽珍鞋都对），仅握持处有一小块不明蓝色"
+    ],
+    "sources": [
+      "result-batchC.jsonl"
+    ],
+    "seen_ok": false,
+    "worst": "p3",
+    "ok": false
+  }
+]

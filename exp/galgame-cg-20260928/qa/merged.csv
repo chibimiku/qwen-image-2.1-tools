@@ -1,0 +1,36 @@
+file,worst,people_count,code,severity,where,what,confident,sources
+story-09-holding-hands,p2,1,A1,P2,画面右侧，伸向镜头的手,四指全部向下弯且指尖粘在一起，关节弯曲方向不自然；手掌与暗背景糊在一起、轮廓不清,high,result-batchA.jsonl|result-mine.jsonl
+story-09-holding-hands,p2,1,B7,P3,同上,prompt 要求 fingers extended toward the camera（伸向镜头、递手的姿态），实际是手腕下垂、指尖朝下的放松手势，'伸手牵手'的意图没表达出来,high,result-batchA.jsonl|result-mine.jsonl
+fix-01-boutique,p2,1,A8,P2,"镜中像 ≈(760,330)-(960,455)",镜中人的手停在腰间且没有实体那只放在裙子上的手，两边姿态对不上，不像同一姿势的镜面反射,medium,result-batchA.jsonl
+fix-04-icecream,p1,1,B6,P1,"画面上半整片天空 ≈(0,0)-(1600,540)",标注是白天晴天，天空却是无细节深黑，只有人物身上有日光高光，与码头阳光自相矛盾,medium,result-batchA.jsonl
+fix-04-icecream,p1,1,C2,P2,同上天空区域,大面积深黑无细节,high,result-batchA.jsonl
+fix-06-sunset-bridge,p2,1,A8,P2,"画面中右 ≈(700,420)-(780,470)",两手是搭在裙子上，右手指尖陷进裙褶呈糊状，看不出握住栏杆,medium,result-batchA.jsonl
+boost-03-street,p2,1,A8,P2,"画面中左 ≈(640,280)-(760,380) 购物袋",手/手腕在袋口后方只有指尖露出，没有绕住任何提手，袋子像贴在手上没被握住,high,result-batchA.jsonl
+story-02-cafe,p2,1,B7,P2,画面中部，持杯处,prompt 要求 both hands wrapped around a glass cup，实际只有一只手举杯，另一条手臂垂在身侧未参与,high,result-batchB.jsonl|result-mine.jsonl
+story-03-street,p1,1,A8,P1,画面中右，右手拎购物袋处,四指指尖与提绳融为一体，没有结构分隔，看不出手指是绕过提绳还是与它焊在一起,high,result-batchB.jsonl|result-mine.jsonl
+story-03-street,p1,1,C3,P2,"画面下中 ≈(780,740)-(960,835) 两只鞋的鞋跟与后帮",鞋跟被画成半透明玻璃块、外轮廓重影错位，鞋后帮结构不可辨,medium,result-batchB.jsonl|result-mine.jsonl
+story-11-rooftop,p1,1,A1,P1,画面中部偏左，抬至脸侧的手,手指成一团、看不出指节与指数量，手部整体像一坨不分瓣的形状,high,result-batchB.jsonl|result-mine.jsonl
+story-11-rooftop,p1,1,B3,P2,肩部与手臂,prompt 要求 white knit cardigan（白色针织开衫），实际画成长款白色大衣/披风，材质与长度都不符,high,result-batchB.jsonl|result-mine.jsonl
+story-11-rooftop,p1,1,B7,P2,"画面中部，人物与身后低栏杆之间 ≈(600,480)-(1200,620)",要求倚在低栏杆上，实际直立站在栏杆前一两米，双手（一在胸口一在身侧）都没接触栏杆,medium,result-batchB.jsonl|result-mine.jsonl
+story-11-rooftop,p1,1,C3,P2,"画面下中偏右 ≈(850,745)-(960,835) 右脚鞋跟",鞋跟渲染成半透明玻璃块并带重影错位轮廓，结构不可辨,medium,result-batchB.jsonl|result-mine.jsonl
+story-12-goodnight,p1,1,A1,P1,画面中部，双手提购物袋处,两手手指粘连成一团，指节不可辨，左右手交接处没有分界,high,result-batchB.jsonl|result-mine.jsonl
+story-12-goodnight,p1,1,C3,P2,"画面下 ≈(760,700)-(990,835) 双脚鞋跟与鞋后帮",鞋跟与后帮画成半透明玻璃块、轮廓重影错位，鞋结构读不清,medium,result-batchB.jsonl|result-mine.jsonl
+story-12-goodnight,p1,1,B5,P3,同上,手提袋是一个无结构的扁块，没有提手与包身的区分,medium,result-batchB.jsonl|result-mine.jsonl
+story-01-boutique,p1,1,C1,P1,画面左半 + 底部 + 右上，约占全图一半,大面积纯白无细节：左半与底部完全死白，只有中央一条竖带（镜子与其周围）有内容。实测纯白像素 48.33%，整行死白 307 行、整列 765 列,high,result-batchB.jsonl|result-mine.jsonl
+story-01-boutique,p1,1,A8,P2,画面中部，镜面边缘处两只手相接的位置,本体与镜中倒影的两只手在镜框边缘几乎相接，指节糊在一起，看不出哪只手属于谁,high,result-batchB.jsonl|result-mine.jsonl
+story-01-boutique,p1,1,B5,P2,镜子本身,道具生成不完整：镜框是一堆碎片化的木条、下缘切进地板，立在那里不合物理；镜面倒影里的人物朝向与本体不一致（本体背对镜子，倒影却是正脸朝观众）,medium,result-batchB.jsonl|result-mine.jsonl
+story-01-boutique,p1,1,C1,P2,"整幅，最严重在右半幅 ≈(950,0)-(1600,896) 与左侧背景",大面积过曝死白：全幅约 53% 像素 RGB>245，右半幅近乎纯白、衣架只剩模糊色块，无细节,high,result-batchB.jsonl|result-mine.jsonl
+story-05-park,p1,1,A3,P1,画面中下，臀部/大腿与长凳座面接触处,臀部与大腿位于座面之'前'而非坐在其上：橙色凳面从腿后穿过，腿像悬在凳前悬空，裙摆下缘与腿的接触关系不成立,high,result-batchB.jsonl|result-mine.jsonl
+story-05-park,p1,1,A7,P2,画面中下，裙下胯部,胯部与内侧大腿结构糊成一体，轮廓无法解读,medium,result-batchB.jsonl|result-mine.jsonl
+story-05-park,p1,1,C3,P2,"画面中上 ≈(690,110)-(800,230) 举起的右手手掌",掌面与指根叠着一层半透明的白色手指轮廓重影，掌部结构发虚（10 倍放大才明显）,low,result-batchB.jsonl|result-mine.jsonl
+story-04-icecream,p1,1,C1,P1,画面右半 + 左下 + 右下,大面积纯白无细节，只有中央竖带有内容。实测纯白像素 43.85%，整行 225、整列 596,high,result-batchC.jsonl|result-mine.jsonl
+story-04-icecream,p1,1,C1,P2,画面右侧 x≈1200–1600 整条竖带，以及左上天空与水面,大面积死白无细节：右 1/4 近乎纯白、仅见一条极淡竖直接缝，全图 50.9% 像素亮度≥250，天空与水面细节全部丢失,high,result-batchC.jsonl|result-mine.jsonl
+story-06-sunset-bridge,p0,2,A4,P0,画面中左，远景少女的脚 x≈660–810 y≈800–890,双脚踩在栏杆横杆顶面上，横杆外侧与下方即水面，脚下没有可见的桥面（与近景少女搭手的是同一根横杆）,low,result-batchC.jsonl|result-mine.jsonl
+story-06-sunset-bridge,p0,2,B1,P0,画面中左（桥上小版本）+ 右侧（前景大版本）,同一角色出现两次：小版本站在桥上、大版本在右侧前景，两者发饰都是白花，是同一个人的两个副本,high,result-batchC.jsonl|result-mine.jsonl
+story-06-sunset-bridge,p0,2,C4,P3,画面中左（远景小图 x≈560–900）与画面右（近景 x≈930–1500）,同一个角色被画了两次：相同的靛蓝发+侧丸子+白花发饰+蓝背带裙+蓝玛丽珍鞋，一大一小同框,high,result-batchC.jsonl|result-mine.jsonl
+seed-42,p2,1,C3,P2,画面左中，搭在栏杆上的手 x≈470–575 y≈345–405,手部糊成一团，指节与手指数量不可辨（原图该手约 105px 宽，8x 放大后仍只见 2–3 个模糊凸起）,medium,result-batchC.jsonl
+seed-1234,p2,1,B7,P2,全身，画面中 x≈650–950,要求的『靠在栏杆上、双手交叠搭在栏上、望向水面』没有画出：她直立面向镜头，右手抬到胸前领口，左手垂在裙侧、并未搭在横杆上,high,result-batchC.jsonl
+seed-20260927,p0,2,B1,P0,画面左中 x≈380–760 与画面右 x≈940–1400,画面里有两个人：左侧靛蓝发少女与右侧金发少女；该场景只要求女主角一人,high,result-batchC.jsonl
+seed-20260927,p0,2,B8,P1,画面右 x≈980–1400,第二个人是画风参考图角色的泄露：白金长发、绿眼、白色露肩裙、蓝色蝴蝶结发饰、深色吊带袜，逐条命中 prompt 的禁用清单,high,result-batchC.jsonl
+control-02-cafe,p1,1,B8,P1,画面右中背景暗墙 x≈1080–1500 y≈80–560，并延伸到画面右下地面,暗墙上出现画风参考图的星座连线（细线把星点连成折线星图），地面也是星空/星河质感，属参考图 starfield 元素泄露,high,result-batchC.jsonl
+control-03-street,p3,1,C3,P3,画面右中，握袋子的拳内 x≈945–975 y≈445–475,握拳里夹着一小块与裙子同色的蓝色块，既不属于手也不属于棕色纸袋与提绳，疑为色渗/贴图残留,low,result-batchC.jsonl
