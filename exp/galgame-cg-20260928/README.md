@@ -1,5 +1,8 @@
 # 固定角色 + 指定画风：galgame 约会 CG 实测包
 
+> ⚠️ **正片有已确认的缺陷**（过曝、同一角色出现两次、手部崩坏、景别不一致）。
+> 逐条证据、成因分析与修法见 [`DEFECTS.md`](DEFECTS.md)。三张已修补，其余未重出。
+
 配方模板在 [`docs/RECIPE-character-plus-style.md`](../../docs/RECIPE-character-plus-style.md)；
 自启说明在 [`docs/AUTOSTART.md`](../../docs/AUTOSTART.md)。
 
