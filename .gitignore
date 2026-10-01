@@ -71,6 +71,9 @@ exp/galgame-cg-20260928/out/*
 !exp/galgame-cg-20260928/README.md
 !exp/galgame-cg-20260928/DEFECTS.md
 !exp/galgame-cg-20260928/FIX-REPORT.md
+!exp/galgame-cg-20260928/STORY.md
+!exp/galgame-cg-20260928/status.py
+!exp/galgame-cg-20260928/check_story.py
 !exp/galgame-cg-20260928/autostart-verify.txt
 !exp/galgame-cg-20260928/run.py
 !exp/galgame-cg-20260928/verify.py
