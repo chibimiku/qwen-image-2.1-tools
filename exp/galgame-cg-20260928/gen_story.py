@@ -221,6 +221,40 @@ SPEC: dict[str, dict] = {
                  "just showing from under the paper's edge. Warm slanted morning light, dust in "
                  "the air. Wide cinematic composition, still life, shallow depth of field.",
     },
+    # ----------------------------------------------------------------------- #
+    # 这两张是**重出**（不是 edit）。
+    #
+    # 起因：旧的 story-04-icecream 是正午强光、story-12-goodnight 气质偏甜，
+    # 需要改的是**光照与氛围**。而实测证明 edit 改不动光照 —— 它会整张重画、
+    # 连人物一致性都丢（07a/13a 的 edit 版就是这么坏的）。
+    # 所以要改光就回出图阶段，用新 prompt 出。
+    #
+    # 构图锚点取自旧图：海港步道 + 甜筒 + 蕾丝（07a）；路灯 + 购物袋 + 一只脚内撇（13a）。
+    # ----------------------------------------------------------------------- #
+    "07a-icecream": {
+        "who": "jin", "title": "冰淇淋（轻松线，斜阳版）",
+        "scene": "A seaside promenade in the late afternoon. She holds a soft-serve ice cream "
+                 "cone in both hands and leans forward slightly to take a bite, a paper napkin "
+                 "tucked in her fingers. Behind her: white metal railings, moored boats with "
+                 "visible masts, terracotta planters, and a distant lighthouse on the far shore. "
+                 "The light is late-afternoon golden hour: the sun sits low and slightly behind "
+                 "her, the sea catches a long warm glitter, shadows stretch toward the camera, "
+                 "and the horizon warms to pale gold while the upper sky stays light blue. Wide "
+                 "cinematic composition, three-quarter body, warm rim light along her hair.",
+    },
+    "13a-goodnight": {
+        "who": "jin", "title": "道别（克制夜色版）",
+        "scene": "She stands alone under a streetlamp in a quiet street near the station "
+                 "entrance, saying goodbye, holding her small brown paper shopping bag in front "
+                 "of her with both hands, one foot turned slightly inward. She is turned toward "
+                 "the viewer and her face is turned up into the lamplight so it stays fully lit "
+                 "and clearly readable, with a small closed smile and a hint of nerves rather "
+                 "than a bright cheerful one. The night around her is deep and saturated: the "
+                 "lamp throws a warm pool of light across her face, shoulders and the pavement "
+                 "in front of her, the street beyond falls quickly into darkness, and the "
+                 "blurred station lights sit far behind her. Wide cinematic composition, full "
+                 "body, centred, strong contrast between lamp light and dark.",
+    },
 }
 
 

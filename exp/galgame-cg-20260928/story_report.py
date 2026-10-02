@@ -33,8 +33,8 @@ VERDICT = {
 # 旧图那三处改动（底图不在 story/，单独列）
 OLD_VERDICT = {
     "12-closeup":   ("edited", "领口未扣好 + 锁骨浅印**做到了**；表情自动变成带一点紧张的浅笑"),
-    "07a-icecream": ("失败",   "要改黄金时刻**没做到**，且**整张被重画** → 用 fixed-2/story-04-icecream.png"),
-    "13a-goodnight": ("失败",  "**整张被重画**（建筑/街景全换、脸也变）→ 用 fixed-2/story-12-goodnight.png"),
+    "07a-icecream": ("重出✅", "edit 改不动整体光照 → 改**重出**：真正的黄金时刻（太阳低垂、海面长条金色反光、投影朝镜头拉长）"),
+    "13a-goodnight": ("重出+修✅", "重出压暗夜色调性（试了 3 个 seed，脸都沉在阴影里 —— 模型配光的稳定倾向），再局部提亮让脸可读，未重画"),
 }
 
 
@@ -64,11 +64,12 @@ def main() -> int:
     print("小计：", "、".join(f"{k} {v} 张" for k, v in sorted(tally.items())))
 
     print()
-    print("=== 旧图那三处改动（底图不在 story/，用 fixed-2/ 与 out/）===")
+    print("=== 旧图那三处改动 ===")
+    print("    （12-closeup 用 story-edited/；07a 用 story/ 重出版；13a 用 story-edited/ 重出+再修版）")
     for name in sorted(OLD_VERDICT):
         verdict, note = OLD_VERDICT[name]
         p = EDITED / f"{name}.png"
-        print(f"  {name:<18}{verdict:<8}{'有图' if p.exists() else '无图':<6}{note}")
+        print(f"  {name:<18}{verdict:<10}{'有图' if p.exists() else '无图':<6}{note}")
     print()
 
     # 与剧本的 CG 清单对账

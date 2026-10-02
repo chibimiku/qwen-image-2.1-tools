@@ -144,15 +144,35 @@ OLD_SPEC: dict[str, dict] = {
     },
 }
 
+# --------------------------------------------------------------------------- #
+# 重出版本的再修（底图在 story/，是由 gen_story.py 重出的）
+#
+# 用于：重出解决了光照与氛围，但留下了新的小问题。
+# 前提是这个问题属于"局部光照"——**不是全局光照**，否则又会整张重画。
+# --------------------------------------------------------------------------- #
+REGEN_SPEC: dict[str, dict] = {
+    "13a-goodnight": {
+        "why": "重出版本（seed 42）的夜色调性对了，但她的脸沉在阴影里、表情读不出来。"
+               "而这一幕正是她问出那句话的地方，表情有意义。",
+        "keep": "her pose, both hands on the bag, the bag, the streetlamp and its glow, the "
+                "dark saturated night, the pavement pool of light, the distant blurred station "
+                "lights, her outfit, her shoes and her hair",
+        "change": ("Warm lamplight now also falls across her face, so her expression is clearly "
+                   "readable: a small closed smile with a hint of nerves. Lift her face out of "
+                   "the shadow and let the lamp reveal it, while everything else stays as dark "
+                   "and restrained as it is now."),
+    },
+}
+
 
 def build(name: str) -> str:
-    s = SPEC.get(name) or OLD_SPEC[name]
+    s = SPEC.get(name) or OLD_SPEC.get(name) or REGEN_SPEC[name]
     return " ".join([KEEP, SINGLE, s["change"]])
 
 
 def source_of(name: str) -> pathlib.Path | None:
     """底图路径：新图在 story/，旧图按 OLD_SPEC 的 src。"""
-    if name in SPEC:
+    if name in SPEC or name in REGEN_SPEC:
         p = STORY / f"{name}.png"
         return p if p.exists() else None
     s = OLD_SPEC.get(name)
@@ -167,15 +187,17 @@ def main() -> int:
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--only", nargs="*", default=[])
     ap.add_argument("--old", action="store_true", help="改用旧图的三处改动（OLD_SPEC）")
+    ap.add_argument("--regen", action="store_true", help="改用重出图的再修（REGEN_SPEC）")
     ap.add_argument("--steps", type=int, default=40)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--keep-original", action="store_true",
                     help="把原图作为 image2 也喂进去（默认不喂）")
     a = ap.parse_args()
 
-    table = OLD_SPEC if a.old else SPEC
+    table = REGEN_SPEC if a.regen else (OLD_SPEC if a.old else SPEC)
+    tag = "重出图的再修" if a.regen else ("旧图改动" if a.old else "后期修图")
     if a.list:
-        print(f"=== {'旧图改动' if a.old else '后期修图'}规格（{len(table)} 张）===")
+        print(f"=== {tag}规格（{len(table)} 张）===")
         for n, s in table.items():
             src = source_of(n)
             print(f"\n  {n}  {'(底图在) ' + str(src.relative_to(EXP)) if src else '(缺底图!)'}")
