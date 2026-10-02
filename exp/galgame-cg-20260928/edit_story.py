@@ -105,33 +105,86 @@ SPEC: dict[str, dict] = {
     },
 }
 
+# --------------------------------------------------------------------------- #
+# 旧图的三处改动（底图在 out/ 与 fixed-2/，不是 story/）
+#
+# 这三张来自旧的那批出图（12 幕正片），用的是旧样式档位，所以不重出 ——
+# 重出会把它换成新档位、与已验收的版本不连续。只改需要改的那一处。
+# --------------------------------------------------------------------------- #
+OLD_SPEC: dict[str, dict] = {
+    "07a-icecream": {
+        "src": "fixed-2/story-04-icecream.png",
+        "why": "剧本把这一幕定位在「下午偏晚」，但原图是正午强光，插在「午后咖啡厅」之后不连续。",
+        "keep": "her pose, both hands holding the cone and the napkin, the promenade, the boats, "
+                "the lighthouse, the sea, the railing, her outfit and her hair",
+        "change": ("The light is now late-afternoon golden hour instead of harsh midday sun: the "
+                   "sun sits low behind her, long soft shadows stretch toward the camera, the "
+                   "sky near the horizon warms to pale gold and the sea catches warm highlights, "
+                   "while the upper sky stays light blue."),
+    },
+    "12-closeup": {
+        "src": "out/story-08-closeup.png",
+        "why": "剧本要求「衬衫领口还没扣好 + 锁骨上一道浅浅的印子」——身体已经答过了，"
+               "她却偏要再听一次。原图是常规特写，没有这个信息。",
+        "keep": "her face, her eyes, her hairstyle and the white flower hairpin, the pose, "
+                "the blurred warm street bokeh background, the framing",
+        "change": ("Her blouse collar is unbuttoned and hangs slightly open at the throat, and "
+                   "a faint mark is visible on her collarbone. She is looking straight at the "
+                   "viewer with a small uncertain smile, more nervous than cheerful."),
+    },
+    "13a-goodnight": {
+        "src": "fixed-2/story-12-goodnight.png",
+        "why": "与 11 同一类问题：整体气质被净化、偏可爱立绘，要压向「夜色里的克制」。",
+        "keep": "her pose, both hands on the bag, the bag, the streetlamp, the street, "
+                "the building behind, her outfit and shoes",
+        "change": ("The mood is quieter and more restrained: her expression is a small closed "
+                   "smile with a hint of nerves rather than a bright cheerful one, and the "
+                   "night around her is deeper and more saturated, with the lamp casting a "
+                   "tighter pool of warm light and the background falling darker."),
+    },
+}
+
 
 def build(name: str) -> str:
-    s = SPEC[name]
+    s = SPEC.get(name) or OLD_SPEC[name]
     return " ".join([KEEP, SINGLE, s["change"]])
+
+
+def source_of(name: str) -> pathlib.Path | None:
+    """底图路径：新图在 story/，旧图按 OLD_SPEC 的 src。"""
+    if name in SPEC:
+        p = STORY / f"{name}.png"
+        return p if p.exists() else None
+    s = OLD_SPEC.get(name)
+    if not s:
+        return None
+    p = EXP / s["src"]
+    return p if p.exists() else None
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--only", nargs="*", default=[])
+    ap.add_argument("--old", action="store_true", help="改用旧图的三处改动（OLD_SPEC）")
     ap.add_argument("--steps", type=int, default=40)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--keep-original", action="store_true",
                     help="把原图作为 image2 也喂进去（默认不喂）")
     a = ap.parse_args()
 
+    table = OLD_SPEC if a.old else SPEC
     if a.list:
-        print(f"=== 后期修图规格（{len(SPEC)} 张）===")
-        for n, s in SPEC.items():
-            base = STORY / f"{n}.png"
-            print(f"\n  {n}  {'(底图在)' if base.exists() else '(缺底图!)'}")
+        print(f"=== {'旧图改动' if a.old else '后期修图'}规格（{len(table)} 张）===")
+        for n, s in table.items():
+            src = source_of(n)
+            print(f"\n  {n}  {'(底图在) ' + str(src.relative_to(EXP)) if src else '(缺底图!)'}")
             print(f"    为什么改：{s['why']}")
             print(f"    保持不变：{s['keep']}")
             print(f"    改成：{s['change'][:110]}…")
         return 0
 
-    names = [n for n in SPEC if (not a.only or any(o in n for o in a.only))]
+    names = [n for n in table if (not a.only or any(o in n for o in a.only))]
     EDITED.mkdir(parents=True, exist_ok=True)
 
     cli = paramiko.SSHClient()
@@ -149,8 +202,8 @@ def main() -> int:
     done = 0
     try:
         for i, n in enumerate(names, 1):
-            src = STORY / f"{n}.png"
-            if not src.exists():
+            src = source_of(n)
+            if src is None:
                 print(f"  [{i}/{len(names)}] {n:<20} 跳过：没有底图")
                 continue
             dst = EDITED / f"{n}.png"
@@ -174,8 +227,9 @@ def main() -> int:
                 dst.write_bytes(base64.b64decode(b64))
                 with LOG.open("a", encoding="utf-8") as fh:
                     fh.write(json.dumps({
-                        "name": n, "seconds": dt, "seed": item.get("seed"),
-                        "size": r.json().get("size"), "prompt": prompt,
+                        "name": n, "source": str(src.relative_to(EXP)), "seconds": dt,
+                        "seed": item.get("seed"), "size": r.json().get("size"),
+                        "prompt": prompt,
                     }, ensure_ascii=False) + "\n")
                 print(f"  [{i}/{len(names)}] {n:<20} OK {dt}s -> story-edited/{dst.name}")
                 done += 1
