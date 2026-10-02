@@ -23,11 +23,19 @@ def check(cond: bool, label: str, extra: str = "") -> None:
 
 print(f"gallery.html：{len(t)} 字符")
 
-print("\n=== 不嵌图（核心要求）===")
-check("<img" not in t, "没有 <img> 标签")
-check("data:image" not in t, "没有 base64 数据 URI")
-check("<svg" not in t, "没有内联 SVG")
-check("background-image" not in t, "CSS 里没有贴图")
+print("\n=== 图片显示方式 ===")
+# 「不嵌图」的正确含义：**不把图塞进 HTML**（不做 base64 内联），
+# 而是用 <img src=相对 URL> 引用文件。这样页面只有 30 KB，图按需加载。
+# 第一版我把这条理解成"不显示图"，把 <img> 整个去掉了 —— 那是错的。
+check("data:image" not in t, "没有 base64 内联图（这是「不嵌图」的本意）")
+check("<img" in t, "用 <img> 直接显示图")
+srcs = re.findall(r"<img\s+src='([^']+)'", t)
+check(len(srcs) >= 16, f"<img> 数量 {len(srcs)}")
+check(all(s.startswith("gallery/") for s in srcs),
+      "所有 img 的 src 都指向站点内相对 URL")
+check(all(s.endswith(".png") for s in srcs), "所有 src 都指向 .png")
+check("loading='lazy'" in t, "图片懒加载")
+check("alt=" in t, "有 alt 文本（可访问性）")
 
 print("\n=== HTML 完整性 ===")
 for tag in ("<html", "</html>", "<head>", "</head>", "<body>", "</body>",

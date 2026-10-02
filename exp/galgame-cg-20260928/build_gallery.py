@@ -296,12 +296,19 @@ hr.sep{border:0;border-top:1px solid var(--line);margin:46px 0}
 .k-regen{background:#1e2c38;color:var(--blue);border:1px solid #2b4054}
 .k-fix{background:#262230;color:#b8a8e0;border:1px solid #3a3350}
 .k-todo{background:#34211f;color:var(--bad);border:1px solid #55322e}
-.imgbox{margin:16px 0 0;background:var(--panel2);border:1px solid var(--line);
-  border-radius:9px;padding:14px 16px}
-.pathrow{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.imgbox{margin:18px 0 0;background:#101015;border:1px solid var(--line);
+  border-radius:9px;padding:0;overflow:hidden}
+.imgbox.noimg{padding:14px 16px}
+.imgbox img{display:block;width:100%;height:auto;background:#0c0c10}
+.imgbox a{display:block;line-height:0}
+.imgbox a:hover img{filter:brightness(1.06)}
+.pathrow{display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  padding:12px 14px;margin:0;border-top:1px solid var(--line);background:var(--panel2)}
 .pathrow code{flex:1;min-width:280px;background:#15151b;border:1px solid var(--line);
   border-radius:6px;padding:8px 11px;font:12.5px/1.5 Consolas,"Courier New",monospace;
   color:#cfe0ff;overflow-wrap:anywhere}
+.hint{padding:4px 14px;color:var(--dim);font-size:12.5px;background:var(--panel2)}
+.hint:last-child{padding-bottom:11px}
 button{background:#2a2a36;color:var(--fg);border:1px solid var(--line);border-radius:6px;
   padding:7px 12px;font-size:12.5px;cursor:pointer;font-family:inherit;white-space:nowrap}
 button:hover{background:#35354a;border-color:#4a4a60}
@@ -372,9 +379,14 @@ def render() -> str:
 
     out.append("<h1>《量尺另一端》</h1>")
     out.append("<p class='sub'>Styling for Someone Else · 短篇 galgame CG 故事（R18）</p>")
-    out.append("<p class='meta'>文字 + 图路径。图片<strong>不嵌入本页</strong>，"
-               "每张下面给的是可直接复制的完整路径与一个「打开图片」按钮，"
-               "便于你定位、修复、替换。</p>")
+    out.append("<p class='meta'>每一幕：正文 + 台词 + <b>直接显示的图</b>（点图看 1600×896 原图），"
+               "图下面附可直接复制的本机绝对路径与网页地址，便于定位、修复、替换。</p>")
+    out.append("<p class='meta'>读者注：本页是创作与质检的交付页，含成人向分镜（分级已逐幕标出）。</p>")
+    # 版本戳：浏览器缓存容易让人以为"没更新"，所以把生成时间印出来
+    import datetime
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    out.append(f"<p class='meta'>页面版本：{stamp} 生成 · "
+               f"{len(SCENES)} 幕 · 16 张图 · 图不内联（引用 gallery/*.png）</p>")
 
     out.append("<div class='stat'>")
     out.append(f"<div><span>{n_ok}</span>出图即成立</div>")
@@ -437,22 +449,31 @@ def render() -> str:
         if s.get("extra"):
             out.append(f"<div class='extra'>{_md(s['extra'])}</div>")
 
-        # 图路径
+        # 图：**直接显示**（用 <img> 引用站点内的相对 URL），下面再给路径条。
+        #
+        # 为什么是 <img> 而不是把 base64 塞进 HTML：
+        #   16 张图 base64 进来会有 ~35 MB，页面每次都要整份下载、编辑器也打不开。
+        #   引用文件则页面只有 30 KB，图按需加载，还能被浏览器缓存。
+        #   「不嵌图」指的是这个 —— 不是"不显示图"。
         if s["img"]:
             ap = abspath(s["img"])
-            out.append("<div class='imgbox'>")
-            out.append("<div class='pathrow'><code>" + html.escape(ap) + "</code>"
+            url = _site_url(s)
+            out.append("<figure class='imgbox'>")
+            out.append(f"<a href='{html.escape(url)}' target='_blank' "
+                       f"title='点开看原图（1600×896）'>"
+                       f"<img src='{html.escape(url)}' alt='{html.escape(s['no'])} "
+                       f"{html.escape(s['title'])}' loading='lazy' decoding='async'></a>")
+            out.append("<figcaption class='pathrow'><code>" + html.escape(ap) + "</code>"
                        "<button onclick='cp(this)'>复制路径</button>"
-                       "<button onclick='openImg(this)'>打开图片</button></div>")
+                       "<button onclick='openImg(this)'>打开图片</button></figcaption>")
             out.append(f"<div class='hint'>相对仓库根：<code style='background:none;"
                        f"border:0;padding:0'>{html.escape(s['img'])}</code></div>")
-            # 站点内 URL（图拷进 IIS 之后可用；路径含空格所以做了 URL 编码）
             out.append(f"<div class='hint'>网页地址：<code style='background:none;"
-                       f"border:0;padding:0'>{html.escape(_site_url(s))}</code></div>")
+                       f"border:0;padding:0'>{html.escape(url)}</code></div>")
             out.append(f"<div class='hint'>状态：{label}</div>")
-            out.append("</div>")
+            out.append("</figure>")
         else:
-            out.append("<div class='imgbox'><div class='hint'>"
+            out.append("<div class='imgbox noimg'><div class='hint'>"
                        "（这一幕还没有图 — 见下方说明）</div></div>")
 
         out.append(f"<p class='note'>{_md(s['note'])}</p>")
