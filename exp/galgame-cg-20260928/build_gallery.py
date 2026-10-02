@@ -22,7 +22,9 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import pathlib
+import subprocess
 import sys
 
 EXP = pathlib.Path(__file__).resolve().parent
@@ -506,21 +508,39 @@ def _md(t: str) -> str:
 PUBLISH_SUBDIR = "gallery"
 IIS_ROOT = pathlib.Path(r"C:\Users\ashsu\Documents\black")
 
+# 发布模式：
+#   "copy" —— 把图拷进站点（第一版做法，改图后需要重跑才同步）
+#   "link" —— **不拷**，在站点里建符号链接指向工作区（默认）
+#
+# 为什么默认改成 link（实测依据）：
+#   · IIS **完全跟随 junction / 符号链接** —— 建个 junction 指到工作区 story/ 目录，
+#     透过 http://127.0.0.1 能直接读到 image/png（验证过 200）。
+#   · 开发者模式已开（AllowDevelopmentWithoutDevLicense=1），所以 mklink 不需要管理员。
+#   · 省掉 36 MB 重复，而且**改图后不需要重跑发布** —— 链接指的一直是最新的文件。
+#
+# 用**逐文件链接**而不是整目录链接：镜像工作区的目录结构，
+# 这样 src 还能写成 `story/01-entrance.png`（带回退），且不必把图按分幕号重命名。
+PUBLISH_MODE = "link"
+
+# 发布时需要在站点里镜像的目录（相对仓库根）
+PUBLISH_DIRS = ("story", "story-edited", "fixed-2")
+
 
 def _site_url(s: dict) -> str:
     """发布后**相对于页面自身**的路径（用于 <img src>）。
 
-    页面发布在 `<站点>/gallery/index.html`，图也拷在**同一个目录**里，
-    所以 src 就是裸文件名，**不能再带 gallery/ 前缀** ——
-    带上会解析成 `/gallery/gallery/01.png` → 404（踩过这个坑：
-    我测的是根路径 `/gallery/01.png`，所以没暴露）。
+    link 模式下站点里镜像了工作区的目录结构，所以 src 就是工作区里的相对路径
+    （`story/01-entrance.png`）；copy 模式下图按分幕号重命名，src 是裸文件名。
 
-    图之所以按分幕号重命名：不同目录下有同名文件
-    （`story-edited/10a-unhook.png` 与 `story/10a-unhook.png`），
-    按分幕号命名后不会互相覆盖，URL 也干净。
+    踩过的坑：页面在 `/gallery/`，若 src 写成 `gallery/01.png`，
+    浏览器会解析成 `/gallery/gallery/01.png` → 404。
+    **src 必须相对页面自身，不能带站点的那一层。**
     """
     if not s.get("img"):
         return ""
+    if PUBLISH_MODE == "link":
+        # exp/galgame-cg-20260928/story/01-entrance.png → story/01-entrance.png
+        return "/".join(s["img"].split("/")[-2:])
     return f"{s['no'].lower()}.png"
 
 
@@ -528,49 +548,153 @@ def _site_path(s: dict) -> str:
     """发布后的**完整本机路径**（给人看、给人复制）。"""
     if not s.get("img"):
         return ""
+    if PUBLISH_MODE == "link":
+        return str(IIS_ROOT / PUBLISH_SUBDIR / "/".join(s["img"].split("/")[-2:]))
     return str(IIS_ROOT / PUBLISH_SUBDIR / f"{s['no'].lower()}.png")
 
 
-def publish() -> int:
-    """把 gallery.html 与用到的图拷进 IIS 站点，图按分幕号重命名。"""
-    import shutil
+def _mk_symlink(link: pathlib.Path, target: pathlib.Path) -> bool:
+    """建文件符号链接。
 
+    **不要经 `cmd /c mklink`** —— 实测在 Python 里拼命令会报
+    "The filename, directory name, or volume label syntax is incorrect"，
+    但同一条命令在 cmd 里手敲却没问题。直接用 os.symlink，少一层转义。
+    （开发者模式已开，所以不需要管理员。）
+    """
+    try:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(target, link)
+        return True
+    except FileExistsError:
+        return True
+    except OSError as exc:
+        print(f"    建链接失败 {link.name}：{exc}")
+        return False
+
+
+def _norm(p: str) -> str:
+    """归一化路径：Windows 符号链接把目标存成 `\\\\?\\D:\\...`（扩展长度前缀），
+    直接和普通路径比会永不相等 —— 那会把 27 个建好的链接全判成"不符"。
+    所以先剥掉前缀再比。"""
+    s = str(p)
+    for pre in ("\\\\?\\", "\\??\\"):
+        if s.startswith(pre):
+            s = s[len(pre):]
+    return s.replace("/", "\\").rstrip("\\").lower()
+
+
+def _same_target(link: pathlib.Path, target: pathlib.Path) -> bool:
+    """这个链接是不是已经指向目标了。"""
+    try:
+        return (link.is_symlink()
+                and _norm(os.readlink(link)) == _norm(target))
+    except OSError:
+        return False
+
+
+def _rm(path: pathlib.Path) -> None:
+    """删掉一个文件/链接/目录。断链也能删。"""
+    try:
+        if path.is_symlink():
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            import shutil
+            shutil.rmtree(path, ignore_errors=True)
+        elif path.exists():
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def publish() -> int:
+    """把 gallery.html 与用到的图发布进 IIS 站点。默认建**符号链接**（不拷贝）。"""
     dst_dir = IIS_ROOT / PUBLISH_SUBDIR
     if not IIS_ROOT.exists():
         print(f"!! 站点根不存在：{IIS_ROOT}")
         return 2
     dst_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"发布到 {dst_dir}")
-    copied = skipped = 0
-    for s in SCENES:
-        if not s.get("img"):
-            continue
-        src = REPO / s["img"]
-        if not src.exists():
-            print(f"  缺图 {s['no']}: {s['img']}")
-            continue
-        dst = dst_dir / f"{s['no'].lower()}.png"
-        if dst.exists() and dst.stat().st_size == src.stat().st_size:
-            skipped += 1
-            continue
-        shutil.copy2(src, dst)
-        copied += 1
-    print(f"  图：拷贝 {copied} / 已是最新 {skipped}")
+    print(f"发布到 {dst_dir}   模式：{PUBLISH_MODE}")
 
+    if PUBLISH_MODE == "link":
+        # 1) 镜像工作区目录结构，逐文件建符号链接
+        n_link = n_ok = n_fail = 0
+        for d in PUBLISH_DIRS:
+            src_dir = EXP / d
+            if not src_dir.is_dir():
+                continue
+            (dst_dir / d).mkdir(parents=True, exist_ok=True)
+            for f in sorted(src_dir.glob("*.png")):
+                dst = dst_dir / d / f.name
+                if _same_target(dst, f):
+                    n_ok += 1
+                    continue
+                _rm(dst)
+                if _mk_symlink(dst, f):
+                    n_link += 1
+                else:
+                    n_fail += 1
+        print(f"  图：新建链接 {n_link} / 已是最新 {n_ok}"
+              + (f" / **失败 {n_fail}**" if n_fail else ""))
+        # 清掉 copy 模式留下的旧文件（分幕号命名的那批真实文件）
+        stale = [p for p in dst_dir.glob("*.png") if not p.is_symlink()]
+        for p in stale:
+            p.unlink()
+        if stale:
+            print(f"  清掉了 copy 模式留下的 {len(stale)} 张真实文件（已被链接取代）")
+    else:
+        import shutil
+        copied = skipped = 0
+        for s in SCENES:
+            if not s.get("img"):
+                continue
+            src = REPO / s["img"]
+            if not src.exists():
+                print(f"  缺图 {s['no']}: {s['img']}")
+                continue
+            dst = dst_dir / f"{s['no'].lower()}.png"
+            if dst.exists() and dst.stat().st_size == src.stat().st_size:
+                skipped += 1
+                continue
+            shutil.copy2(src, dst)
+            copied += 1
+        print(f"  图：拷贝 {copied} / 已是最新 {skipped}")
+
+    # 2) 页面也用链接指到工作区生成的那份 —— 这样改图/改稿后**不必重跑发布**
+    html_src = (EXP / "gallery.html").resolve()
     html_dst = dst_dir / "index.html"
-    html_src = EXP / "gallery.html"
-    shutil.copy2(html_src, html_dst)
-    print(f"  页面：{html_dst.name}  ({html_dst.stat().st_size} 字节)")
+    if PUBLISH_MODE == "link":
+        if not _same_target(html_dst, html_src):
+            _rm(html_dst)
+            if not _mk_symlink(html_dst, html_src):
+                print("  !! 页面链接建失败，页面不可用")
+                return 1
+        print(f"  页面：index.html → {html_src}")
+    else:
+        import shutil
+        shutil.copy2(html_src, html_dst)
+        print(f"  页面：index.html  ({html_dst.stat().st_size} 字节)")
+
     print(f"\n  浏览地址： http://localhost/{PUBLISH_SUBDIR}/")
-    print(f"  （站点根开了目录浏览，也可以访问 http://localhost/{PUBLISH_SUBDIR}/ 看文件列表）")
+    # 只有真的建成了才敢这么说（上一版在全部失败的情况下也这么报，是错的）
+    linked = all(_same_target(dst_dir / d / f.name, f)
+                 for d in PUBLISH_DIRS if (EXP / d).is_dir()
+                 for f in sorted((EXP / d).glob("*.png")))
+    if PUBLISH_MODE == "link" and linked:
+        print("  链接模式：改图或改稿后**直接刷新浏览器**即可，不用重新发布")
     return 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--publish", action="store_true", help="生成后拷进 IIS 站点")
+    ap.add_argument("--publish", action="store_true", help="生成后发布进 IIS 站点")
+    ap.add_argument("--copy", action="store_true",
+                    help="发布时用拷贝而不是符号链接（默认链接）")
     a = ap.parse_args()
+
+    if a.copy:
+        global PUBLISH_MODE
+        PUBLISH_MODE = "copy"
 
     p = EXP / "gallery.html"
     p.write_text(render(), encoding="utf-8")

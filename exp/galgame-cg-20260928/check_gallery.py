@@ -33,12 +33,38 @@ check("<img" in t, "用 <img> 直接显示图")
 srcs = re.findall(r"<img\s+src='([^']+)'", t)
 check(len(srcs) >= 16, f"<img> 数量 {len(srcs)}")
 check(all(not s.startswith("/") for s in srcs), "src 是相对路径（不是绝对路径）")
-check(all("/" not in s for s in srcs),
-      "src 是**裸文件名**，不带目录前缀",
-      f"带目录的：{[s for s in srcs if '/' in s]}" if any("/" in s for s in srcs) else "")
+# src 相对**页面自身**：link 模式下站点镜像了工作区目录结构，所以形如
+# `story/01-entrance.png`（一轮目录，不是裸文件名，也不是 `gallery/...`）。
+check(all(s.split("/")[0] in ("story", "story-edited", "fixed-2") for s in srcs),
+      "src 的第一段是工作区里的图片目录（story / story-edited / fixed-2）",
+      f"异常：{[s for s in srcs if s.split('/')[0] not in ('story','story-edited','fixed-2')]}")
+check(not any(s.startswith("gallery/") for s in srcs),
+      "src 没有多带站点那一层（`gallery/…` 会 404）")
 check(all(s.endswith(".png") for s in srcs), "所有 src 都指向 .png")
 check("loading='lazy'" in t, "图片懒加载")
 check("alt=" in t, "有 alt 文本（可访问性）")
+
+print("\n=== 站点是链接还是拷贝 ===")
+# link 模式：站点里应该是符号链接，指回工作区 —— 这样改图立刻生效、零重复。
+SITE = pathlib.Path(os.environ.get("GALLERY_ROOT", r"C:\Users\ashsu\Documents\black\gallery"))
+if SITE.exists():
+    links, real = [], []
+    for s in srcs:
+        p = SITE / s
+        if p.is_symlink():
+            links.append(s)
+        elif p.exists():
+            real.append(s)
+    check(len(links) + len(real) == len(srcs), f"站点里 {len(srcs)} 张图都在",
+          f"缺 {len(srcs) - len(links) - len(real)}")
+    check(not real, "站点里没有真副本（link 模式应当全是符号链接）",
+          f"真文件：{real[:3]}" if real else f"符号链接 {len(links)} 个")
+    # 断链检查：链接建了但目标没了，浏览器会 404
+    broken = [s for s in links if not (SITE / s).exists()]
+    check(not broken, "没有断链（链接目标都还在）",
+          f"断链：{broken[:3]}" if broken else "")
+else:
+    print(f"  --   跳过（站点目录不可见：{SITE}）")
 
 print("\n=== 相对路径解析（浏览器视角）===")
 # 这一条是本轮的核心教训：src 的写法本身对，但**相对什么**很关键。
