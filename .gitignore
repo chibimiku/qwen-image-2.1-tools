@@ -79,6 +79,11 @@ exp/galgame-cg-20260928/out/*
 !exp/galgame-cg-20260928/story_report.py
 !exp/galgame-cg-20260928/edit_story.py
 !exp/galgame-cg-20260928/edit_compare.py
+!exp/galgame-cg-20260928/build_gallery.py
+!exp/galgame-cg-20260928/check_gallery.py
+# 最终长页 HTML：是 build_gallery.py 的产物（图不嵌入，只有文字 + 路径），
+# 但仍入库 —— 它就是要交给人的那份东西，别人 clone 后能直接打开看。
+!exp/galgame-cg-20260928/gallery.html
 !exp/galgame-cg-20260928/story-gen-log.jsonl
 !exp/galgame-cg-20260928/edit-log.jsonl
 !exp/galgame-cg-20260928/sheets-story*.png

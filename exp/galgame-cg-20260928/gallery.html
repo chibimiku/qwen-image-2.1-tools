@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>《量尺另一端》— 故事 CG 长页</title>
+<style>
+:root{
+  --bg:#14141a; --panel:#1c1c24; --panel2:#22222c; --line:#33333f;
+  --fg:#e8e8ee; --dim:#9a9aa8; --warm:#e8c07a; --blue:#8fb8e8;
+  --pink:#e8a8c0; --ok:#8fd0a0; --warn:#e8b06a; --bad:#e88a8a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.85 "Microsoft YaHei","PingFang SC",system-ui,sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:44px 26px 90px}
+h1{font-size:30px;margin:0 0 6px;letter-spacing:.02em}
+h2{font-size:19px;margin:52px 0 16px;padding-bottom:9px;border-bottom:1px solid var(--line);
+  color:var(--warm)}
+.sub{color:var(--dim);font-size:14px;margin:0 0 6px}
+.meta{color:var(--dim);font-size:13.5px}
+.meta b{color:var(--fg);font-weight:600}
+hr.sep{border:0;border-top:1px solid var(--line);margin:46px 0}
+.act{font-size:13px;letter-spacing:.16em;color:var(--warm);margin:44px 0 4px}
+.scene{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  padding:20px 22px 18px;margin:16px 0}
+.scene.key{border-color:#4a4436;background:linear-gradient(180deg,#20201a,#1c1c24)}
+.sno{display:inline-block;min-width:52px;font-weight:700;color:var(--blue);
+  font-size:17px;letter-spacing:.03em}
+.stitle{font-size:19px;font-weight:700}
+.role{color:var(--dim);font-size:13px;margin-top:3px}
+.text{margin:14px 0 0}
+.line{margin:14px 0 0;padding:11px 15px;border-left:3px solid var(--warm);
+  background:#201f26;border-radius:0 7px 7px 0;color:#f3e7cf}
+.line + .line{margin-top:8px}
+.extra{margin:12px 0 0;color:var(--dim);font-size:14px;font-style:italic}
+.tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:20px;
+  margin-left:8px;vertical-align:middle;font-weight:600}
+.k-ok{background:#1e3326;color:var(--ok);border:1px solid #2e4d3a}
+.k-edit{background:#2c2a1e;color:var(--warn);border:1px solid #4a4327}
+.k-regen{background:#1e2c38;color:var(--blue);border:1px solid #2b4054}
+.k-fix{background:#262230;color:#b8a8e0;border:1px solid #3a3350}
+.k-todo{background:#34211f;color:var(--bad);border:1px solid #55322e}
+.imgbox{margin:16px 0 0;background:var(--panel2);border:1px solid var(--line);
+  border-radius:9px;padding:14px 16px}
+.pathrow{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.pathrow code{flex:1;min-width:280px;background:#15151b;border:1px solid var(--line);
+  border-radius:6px;padding:8px 11px;font:12.5px/1.5 Consolas,"Courier New",monospace;
+  color:#cfe0ff;overflow-wrap:anywhere}
+button{background:#2a2a36;color:var(--fg);border:1px solid var(--line);border-radius:6px;
+  padding:7px 12px;font-size:12.5px;cursor:pointer;font-family:inherit;white-space:nowrap}
+button:hover{background:#35354a;border-color:#4a4a60}
+.hint{color:var(--dim);font-size:12.5px;margin-top:7px}
+.note{margin:13px 0 0;color:#c8c8d4;font-size:14px}
+.note b{color:var(--fg)}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13.5px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--warm);font-weight:600;font-size:13px}
+td.n{color:var(--blue);font-weight:700;white-space:nowrap}
+.warn{background:#241a1a;border:1px solid #5a3230;border-radius:9px;padding:15px 18px;
+  margin:22px 0}
+.warn b{color:var(--bad)}
+.stat{display:flex;gap:26px;flex-wrap:wrap;margin:16px 0 0}
+.stat div{color:var(--dim);font-size:13.5px}
+.stat span{color:var(--fg);font-weight:700;font-size:17px;margin-right:5px}
+.copyok{color:var(--ok);font-size:12.5px}
+</style></head><body><div class='wrap'>
+<h1>《量尺另一端》</h1>
+<p class='sub'>Styling for Someone Else · 短篇 galgame CG 故事（R18）</p>
+<p class='meta'>文字 + 图路径。图片<strong>不嵌入本页</strong>，每张下面给的是可直接复制的完整路径与一个「打开图片」按钮，便于你定位、修复、替换。</p>
+<div class='stat'>
+<div><span>10</span>出图即成立</div>
+<div><span>3</span>后期 edit 修成</div>
+<div><span>2</span>重出</div>
+<div><span>2</span>待处理</div>
+<div><span>17</span>分幕总数</div>
+</div>
+<h2>故事核</h2>
+<p>你是那个「替别人准备重要一天」的人。她替无数人挑好赴约的衣服，却从来没人替她挑过一次。</p>
+<p>而今天，全世界只有她还不知道——<strong>那个「别人」就是她自己</strong>。</p>
+<p class='meta'>两条准备线并行：<b>堇</b>（搭配师）替你准备；<b>暖暖</b>（老客）让堇替她准备。<b>两个人要见的是同一个人。</b>玩家全程知道，两个角色各自不知道——信息差就是全篇的张力来源，所以高潮不是告白，是<strong>两个人终于对上账</strong>的那一刻。</p>
+<h2>角色</h2>
+<table><tr><th>角色</th><th>视觉</th><th>在这个故事里</th></tr>
+<tr><td class='n'>堇</td><td>靛蓝色及肩波浪发、一侧小丸子、白色小花发饰、蓝紫眼；白泡泡袖衬衫 + 蓝色牛仔背带裙（裙摆天蓝→薄荷绿渐变）；蓝色蝴蝶结玛丽珍高跟</td><td>搭配师，小工作室在旧街二楼。慢热、克制，把关心放在细节里。口头禅「你抬手，我看看肩线」既是职业台词，也是她挡住情绪的方式</td></tr>
+<tr><td class='n'>暖暖</td><td>浅粉色及腰直发、发尾微卷、暖棕眼；白色罗纹针织毛衣 + 淡粉格纹背带裙，胸口红丝带；<strong>裙摆一圈印着 POETRY BLOOM</strong></td><td>老客。三年前第一次进门就让堇改了裙长，从此只找堇做衣服。叫堇「堇姐」。紧张时会去摸裙摆上那行字</td></tr>
+<tr><td class='n'>你</td><td>不出现</td><td>由玩家扮演。全程知道两条线要见的是同一个人</td></tr>
+</table>
+<h2>分幕</h2>
+<div class='act'>第一幕 · 量</div>
+<div class='scene'>
+<div><span class='sno'>01</span><span class='stitle'>进店</span><span class='tag k-ok'>出图版</span></div>
+<div class='role'>人物：堇 + 里屋的暖暖（只见裙）</div>
+<p class='text'>约的是四点。她比我早到，门已经开了。里屋有人在哼歌。</p>
+<p class='text'>旧街二楼的木楼梯尽头，她站在门里侧，手还搭在门把上——她没有先说话，先看的是我的肩。</p>
+<div class='line'>堇：「……约的是四点吧？先进来，别站在楼梯口。」</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story\01-entrance.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story/01-entrance.png</code></div>
+<div class='hint'>状态：出图即成立</div>
+</div>
+<p class='note'>门框、衣架、<strong>里屋那件粉裙的钩子</strong>都在（她是主角，但第一眼先给钩子）。</p>
+</div>
+<div class='scene'>
+<div><span class='sno'>02</span><span class='stitle'>量肩</span><span class='tag k-ok'>出图版</span></div>
+<div class='role'>人物：堇 + 你（客人的肩在右侧虚焦出画）</div>
+<p class='text'>她绕到我身后，布尺从肩上过去。她的手很稳，眼神只在肩线上——不看人。</p>
+<p class='text'>然后停了一下。很短，短到可以当成是她在读数。</p>
+<div class='line'>堇：「你抬手，我看看肩线。」</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story\02-measure.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story/02-measure.png</code></div>
+<div class='hint'>状态：出图即成立</div>
+</div>
+<p class='note'>全篇最好的一张。<strong>改成单人视角才成立</strong>：客人只出现肩与后颈、还虚焦，主体是她的手与布尺。第一版要求「两人都在画面里」，模型给同一个人画了两个副本。另：客人没画上衣，按确认保留原样。</p>
+</div>
+<div class='scene'>
+<div><span class='sno'>03</span><span class='stitle'>那件事</span><span class='tag k-ok'>出图版</span></div>
+<div class='role'>人物：堇 + 你</div>
+<p class='text'>她放下尺，笔尖停在记事本上。</p>
+<p class='text'>她的表情没有变，但眼睛变了一瞬。</p>
+<div class='line'>堇：「那个人，是什么样的？」</div>
+<div class='extra'>隔壁试衣区的帘子后面传来暖暖的声音：「堇姐！这条裙长你是不是又给我改短了——」</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story\03-the-question.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story/03-the-question.png</code></div>
+<div class='hint'>状态：出图即成立</div>
+</div>
+<p class='note'>抬眼 + 笔停在记事本上的动作都对。</p>
+</div>
+<div class='scene'>
+<div><span class='sno'>04</span><span class='stitle'>换衣</span><span class='tag k-todo'>⚠️ 待换模型</span></div>
+<div class='role'>人物：堇 + 你</div>
+<p class='text'>她替我把衬衫最上面那颗扣子解开。指尖停在第二颗上，没有往下。</p>
+<p class='text'>她抬眼看我。离得很近。</p>
+<div class='line'>堇：「……肩线没问题了。」（她答的是上一个问题）</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story\04-unbutton.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story/04-unbutton.png</code></div>
+<div class='hint'>状态：待处理</div>
+</div>
+<p class='note'><strong>本机做不到这一幕。</strong> 唯一内容是「她的手停在另一个人的衬衫上」，即「与另一个人发生的动作」：出图画成她在扣自己的衬衫并对镜头笑；后期 edit 也完全没改成功。详见 STORY-GEN-REPORT.md 第四节，那里写了换模型时要验的三件事与两个备选构图。</p>
+</div>
+<div class='act'>第二幕 · 试</div>
+<div class='scene'>
+<div><span class='sno'>05</span><span class='stitle'>咖啡厅</span><span class='tag k-fix'>修复版</span></div>
+<div class='role'>人物：堇 + 你</div>
+<p class='text'>窗边小圆桌。她双手捧着冰茶杯，斜前方放着一块草莓蛋糕。</p>
+<p class='text'>她手机亮了一下，她看了一眼，没回。</p>
+<div class='line'>堇：「她挑料子的话……大概会选缎面。我先问问。」</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\fixed-2\story-02-cafe.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/fixed-2/story-02-cafe.png</code></div>
+<div class='hint'>状态：用早先的修复版</div>
+</div>
+<p class='note'>用修复版（首版只画了单手，要求「双手捧杯」）。场上还没出现第二个人，但台词已经在替她准备。</p>
+</div>
+<div class='scene'>
+<div><span class='sno'>06</span><span class='stitle'>街上</span><span class='tag k-fix'>修复版</span></div>
+<div class='role'>人物：堇 + 你</div>
+<p class='text'>沿街走。她拎着纸袋，回头看我，嘴角有一点笑。</p>
+<p class='text'>她自己大概没意识到。</p>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\fixed-2\story-03-street.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/fixed-2/story-03-street.png</code></div>
+<div class='hint'>状态：用早先的修复版</div>
+</div>
+<p class='note'>用修复版（首版四指与提绳焊在一起、鞋跟成玻璃块）。</p>
+</div>
+<div class='act'>第二幕 · 试 · 分支（轻松线）</div>
+<div class='scene'>
+<div><span class='sno'>07a</span><span class='stitle'>冰淇淋</span><span class='tag k-regen'>重出版</span></div>
+<div class='role'>人物：堇 + 你</div>
+<p class='text'>海港步道。她一手甜筒、一手纸巾，风把头发吹起来。</p>
+<p class='text'>太阳低下去的时候，她忽然不说话了。</p>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story\07a-icecream.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story/07a-icecream.png</code></div>
+<div class='hint'>状态：重出（回到出图阶段）</div>
+</div>
+<p class='note'><strong>重出</strong>（不是 edit）。真正的黄金时刻：太阳低垂、海面拖出长条金色反光、投影朝镜头拉长。旧版是正午强光，与「午后咖啡厅」之后不连续。⚠️ 不要用同名的 edit 版（它没做出黄金时刻，还把整张重画了）。</p>
+</div>
+<div class='act'>第二幕 · 试 · 分支（紧张线）</div>
+<div class='scene key'>
+<div><span class='sno'>07b</span><span class='stitle'>两个人的量体</span><span class='tag k-ok'>出图版</span></div>
+<div class='role'>人物：<strong>堇 + 暖暖（唯一一次两人同框）</strong></div>
+<p class='text'>回工作室。暖暖已经在里面等着了，见我进来也不避，「你就是堇姐说的那个人？」，说完自己先笑了。</p>
+<p class='text'>堇替她张开手臂量体。我在旁边看着——两个人各自为了同一个人认真准备。</p>
+<p class='text'><strong>而我全程知道，她们俩都不知道。</strong></p>
+<div class='line'>堇：「抬手。……你这个肩，比上次量的时候窄了。」　暖暖：「哪有。是你尺子拿歪了。」（说完去摸裙摆上那行字）</div>
+<div class='line'>堇：「……你今天，是要去见谁？」（她问的时候，没看暖暖）</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story\07b-three-fitting.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story/07b-three-fitting.png</code></div>
+<div class='hint'>状态：出图即成立</div>
+</div>
+<p class='note'><strong>全篇最酸的一场，也是唯一证实「两个角色能同框而不串味」的一张。</strong> 第一版画成两组人 + 地板整块星座连线；改成把「不要」写成「要什么」（正面描述背景）+ 把不重复禁在画法层之后成立。蓝发与粉发一眼分得开。</p>
+</div>
+<div class='act'>第二幕 · 试</div>
+<div class='scene'>
+<div><span class='sno'>08</span><span class='stitle'>长凳</span><span class='tag k-fix'>修复版</span></div>
+<div class='role'>人物：堇 + 你（暖暖已走）</div>
+<p class='text'>秋日公园。她坐在长凳上，腿垂在凳前，抬头看落下的叶子。</p>
+<p class='text'>她手里还握着半卷布尺——暖暖那件剩下的。</p>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\fixed-2\story-05-park.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/fixed-2/story-05-park.png</code></div>
+<div class='hint'>状态：用早先的修复版</div>
+</div>
+<p class='note'>用修复版（首版臀腿悬在座面前方，承重关系不成立）。</p>
+</div>
+<div class='act'>第二幕 · 试 · 转折</div>
+<div class='scene'>
+<div><span class='sno'>09</span><span class='stitle'>落日桥</span><span class='tag k-fix'>修复版</span></div>
+<div class='role'>人物：堇 + 你</div>
+<p class='text'>她靠在桥栏上看河面。说完那句话之后，侧脸没有转回来。</p>
+<div class='line'>堇：「这套……我给自己也留了一件。」</div>
+<div class='extra'>她说的是暖暖那件。她说的是同一个人。</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\fixed-2\story-06-sunset-bridge.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/fixed-2/story-06-sunset-bridge.png</code></div>
+<div class='hint'>状态：用早先的修复版</div>
+</div>
+<p class='note'>用修复版（首版是 P0：同一个人被画了两次）。</p>
+</div>
+<div class='act'>第三幕 · 说 · 分支</div>
+<div class='scene'>
+<div><span class='sno'>10a</span><span class='stitle'>顺着问下去</span><span class='tag k-edit'>edit 版</span></div>
+<div class='role'>人物：堇（你不在画面里）</div>
+<p class='text'>夜里只剩一盏台灯。她背对着我，一侧背带滑下肩，手停在腰上第二颗金扣上。</p>
+<p class='text'>工作台上摊着暖暖那件格纹裙——同一张桌子上，两份「准备」并排。</p>
+<p class='text'>她没有回头。</p>
+<div class='line'>堇：「你过来。……这边，要量一下。」</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story-edited\10a-unhook.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story-edited/10a-unhook.png</code></div>
+<div class='hint'>状态：后期 edit 修成</div>
+</div>
+<p class='note'>服装状态、扣环、台灯、开衫、粉裙都对；edit 只把表情从甜笑改得稍微收敛（仍有笑）。<strong>她把自己交出去的姿势，仍然是工作的姿势。</strong></p>
+</div>
+<div class='act'>第三幕 · 说 · 分支（备选）</div>
+<div class='scene'>
+<div><span class='sno'>10b</span><span class='stitle'>装没听见</span><span class='tag k-todo'>未出图（分支备选）</span></div>
+<div class='role'>人物：堇</div>
+<p class='text'>她背对我收拾衣架，台灯只照亮半间屋子。</p>
+<p class='text'>暖暖那件裙已经叠好，压着一张写着地址的便签。</p>
+<div class='imgbox'><div class='hint'>（这一幕还没有图 — 见下方说明）</div></div>
+<p class='note'>如果只做单线，这一幕不需要；10a 已经承担了同样的转折。</p>
+</div>
+<div class='act'>第三幕 · 说（成人场景 · 主拍）</div>
+<div class='scene key'>
+<div><span class='sno'>11</span><span class='stitle'>试衣镜前</span><span class='tag k-edit'>edit 版</span></div>
+<div class='role'>人物：堇</div>
+<p class='text'>她背靠着落地镜，两条背带都滑到肘上。一只手撑在镜面上，另一只手还捏着那根布尺，尺子垂下来搭在大腿上。</p>
+<p class='text'>她看的是镜中的我，不是她自己。</p>
+<p class='text'><strong>她抓着的还是那根量尺——那是她唯一的遮挡物。</strong></p>
+<div class='line'>堇：「……你再近一点，我就量不准了。」</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story-edited\11-mirror-adult.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story-edited/11-mirror-adult.png</code></div>
+<div class='hint'>状态：后期 edit 修成</div>
+</div>
+<p class='note'>出图阶段被模型「净化」（衬衫没敞开、裙长变短），<strong>后期 edit 把三项都改到了</strong>，背带滑落／手撑镜面／垂下的布尺原样保住。代价：裙摆的「天蓝→薄荷绿」渐变被吃掉（keep 列表里漏了配色）。</p>
+</div>
+<div class='act'>第三幕 · 说</div>
+<div class='scene'>
+<div><span class='sno'>12</span><span class='stitle'>近景</span><span class='tag k-edit'>edit 版</span></div>
+<div class='role'>人物：堇</div>
+<p class='text'>她看着我，笑里带一点紧张。领口还没扣好。</p>
+<p class='text'>她问的时候，我手机在震——是暖暖发来的：「堇姐我明天几点来试？」</p>
+<div class='line'>堇：「所以……今天这套，是穿给我看的吗？」</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story-edited\12-closeup.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story-edited/12-closeup.png</code></div>
+<div class='hint'>状态：后期 edit 修成</div>
+</div>
+<p class='note'>剧本要求「领口未扣好 + 锁骨上一道浅印」——身体已经答过了，她却偏要再听一次。edit 做到了，表情还自动变成带一点紧张的浅笑。</p>
+</div>
+<div class='act'>第三幕 · 说 · 分支（结局 A）</div>
+<div class='scene key'>
+<div><span class='sno'>13a</span><span class='stitle'>直接说出来</span><span class='tag k-regen'>重出 + 再修</span></div>
+<div class='role'>人物：堇 + 你</div>
+<p class='text'>路灯下，她双手提着小购物袋，一只脚内撇。</p>
+<p class='text'>她说完自己愣了一下。</p>
+<div class='line'>堇：「那你早说啊，我量了半天。」（说完自己笑了）</div>
+<div class='line'>堇：「……那明天，让她别来了。」</div>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story-edited\13a-goodnight.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story-edited/13a-goodnight.png</code></div>
+<div class='hint'>状态：重出（回到出图阶段）</div>
+</div>
+<p class='note'>重出把夜压对了（灯下一小片暖光池、更深更饱和），但脸沉在阴影里；三个 seed 都改不掉（模型配光的稳定倾向），于是做了一次<strong>局部光照</strong>的 edit 把脸抬出来——<strong>没有重画</strong>，路灯/袋子/姿势/服装全保留。</p>
+</div>
+<div class='act'>第三幕 · 说 · 分支（结局 B）</div>
+<div class='scene'>
+<div><span class='sno'>13b</span><span class='stitle'>把邀约放进衣服里</span><span class='tag k-ok'>出图版</span></div>
+<div class='role'>人物：无人物</div>
+<p class='text'>第二天早上，工作台上摊着<strong>两件</strong>刚改好的衣服——一件是我的衬衫，一件是暖暖那件格纹裙。</p>
+<p class='text'>两件胸口各别着一张手写便签。<strong>不用她当场回答，信是给人留时间的。</strong></p>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story\13b-note.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story/13b-note.png</code></div>
+<div class='hint'>状态：出图即成立</div>
+</div>
+<p class='note'>静态物构图，本机的强项区。是<strong>编辑推荐</strong>的结局。</p>
+</div>
+<div class='act'>尾声 · 全篇落点</div>
+<div class='scene key'>
+<div><span class='sno'>14</span><span class='stitle'>信</span><span class='tag k-ok'>出图版</span></div>
+<div class='role'>人物：无人物</div>
+<p class='text'>工作室的木桌上，一张摊开的信纸，和一小截用剩的布尺。</p>
+<p class='text'>桌角还压着暖暖那件裙子的下摆——<strong>「POETRY BLOOM」那行字正好从纸边露出来</strong>。</p>
+<p class='text'>她替别人挑了那么多年，第一次有人替她把这一天挑好。</p>
+<div class='imgbox'>
+<div class='pathrow'><code>D:\workspace\dsh-default\qwen-image-2.1-tools\exp\galgame-cg-20260928\story\14-letter.png</code><button onclick='cp(this)'>复制路径</button><button onclick='openImg(this)'>打开图片</button></div>
+<div class='hint'>相对仓库根：<code style='background:none;border:0;padding:0'>exp/galgame-cg-20260928/story/14-letter.png</code></div>
+<div class='hint'>状态：出图即成立</div>
+</div>
+<p class='note'><strong>全篇唯一让「两件衣服同框」的镜头。</strong> 她替暖暖做的、她替自己留的，最后并排躺在同一张桌上。不用写一句话解释。</p>
+</div></div><script>
+function cp(btn){
+  const code = btn.parentElement.querySelector('code');
+  const t = code.textContent.trim();
+  const done = () => { const s=btn.textContent; btn.textContent='已复制';
+    btn.classList.add('copyok');
+    setTimeout(()=>{btn.textContent=s; btn.classList.remove('copyok');},1300); };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done).catch(()=>{fallback(t,done);});
+  } else { fallback(t,done); }
+}
+function fallback(t,done){
+  const ta=document.createElement('textarea'); ta.value=t;
+  ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand('copy'); done(); }catch(e){ alert('复制失败，请手动选择路径'); }
+  document.body.removeChild(ta);
+}
+function openImg(btn){
+  const code = btn.parentElement.querySelector('code');
+  const p = code.textContent.trim().replace(/\\/g,'/');
+  window.open('file:///' + encodeURI(p), '_blank');
+}
+</script></body></html>
