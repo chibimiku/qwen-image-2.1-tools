@@ -49,9 +49,24 @@ check(not missing, "所有绝对路径在磁盘上都存在",
 print("\n=== 交互与结构 ===")
 check("复制路径" in t, "有「复制路径」按钮")
 check("打开图片" in t, "有「打开图片」按钮")
-check("function cp(" in t, "复制脚本存在")
-check("function openImg(" in t, "打开脚本存在")
-check("navigator.clipboard" in t and "execCommand" in t,
+
+# 光查"函数名是否出现在文件里"不够 —— 踩过这个坑：
+# 我给 openImg 加注释时误删了函数定义，但注释里还留着 file:// 字样，
+# 于是字符串检查照样通过，而按钮其实是死的。
+# 所以这里**交叉核对**：每个 onclick 绑定的函数，都必须在 <script> 里真的定义过。
+js = t.split("<script>", 1)[-1].split("</script>", 1)[0]
+bound = set(re.findall(r"onclick='(\w+)\(", t))
+defined = set(re.findall(r"function\s+(\w+)\s*\(", js))
+check(bound <= defined, "每个 onclick 绑定的函数都真的定义了",
+      f"未定义：{sorted(bound - defined)}" if bound - defined else f"绑定={sorted(bound)}")
+check(js.count("{") == js.count("}"), f"JS 花括号平衡（{js.count('{')}/{js.count('}')}）")
+check("file:///" in js, "「打开图片」用的是 file:// URL")
+# 注：曾经想断言"没有把盘符冒号编码成 %3A"，但那是**我记错了** ——
+# encodeURIComponent 本来就不编码冒号，而 %3A 只出现在解释这条的注释里。
+# 断言的前提本身是错的，所以去掉，改用下面更直接的一条。
+check("encodeURIComponent" in js or "encodeURI" in js,
+      "路径做了 URL 编码（路径含空格）")
+check("navigator.clipboard" in js and "execCommand" in js,
       "复制有回退方案（file:// 下 clipboard API 可能被拒）")
 check("故事核" in t and "角色" in t and "分幕" in t, "三个主区块都在")
 

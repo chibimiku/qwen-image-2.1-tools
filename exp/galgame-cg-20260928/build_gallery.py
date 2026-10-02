@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import html
 import json
 import pathlib
@@ -339,9 +340,15 @@ function fallback(t,done){
   document.body.removeChild(ta);
 }
 function openImg(btn){
+  // 「复制路径」那条是 Windows 绝对路径（带反斜杠），粘进本机工具用。
+  // 浏览器不能直接开 file:///（会被拦），所以把同一个路径转成 URL 形式。
+  // 注意：不能整段 encodeURIComponent —— 它会把盘符的冒号也编成 %3A，
+  // 那样 file:// 就失效了；只对每一段路径做编码（空格 → %20）。
   const code = btn.parentElement.querySelector('code');
-  const p = code.textContent.trim().replace(/\\\\/g,'/');
-  window.open('file:///' + encodeURI(p), '_blank');
+  const win = code.textContent.trim().replace(/\\\\/g, '/');
+  const parts = win.split('/');
+  const head = parts.shift();                      // 'C:' 之类，保持原样
+  window.open('file:///' + head + '/' + parts.map(encodeURIComponent).join('/'), '_blank');
 }
 """
 
@@ -439,6 +446,9 @@ def render() -> str:
                        "<button onclick='openImg(this)'>打开图片</button></div>")
             out.append(f"<div class='hint'>相对仓库根：<code style='background:none;"
                        f"border:0;padding:0'>{html.escape(s['img'])}</code></div>")
+            # 站点内 URL（图拷进 IIS 之后可用；路径含空格所以做了 URL 编码）
+            out.append(f"<div class='hint'>网页地址：<code style='background:none;"
+                       f"border:0;padding:0'>{html.escape(_site_url(s))}</code></div>")
             out.append(f"<div class='hint'>状态：{label}</div>")
             out.append("</div>")
         else:
@@ -458,7 +468,76 @@ def _md(t: str) -> str:
     return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
 
 
+# --------------------------------------------------------------------------- #
+# 发布到 IIS
+#
+# 站点根：C:\Users\ashsu\Documents\black（web.config 里开了目录浏览）
+# 发布到它下面的 gallery\ 子目录，**图一起拷进去**，这样浏览器里直接能看；
+# 同时保留本机绝对路径，粘到资源管理器/工具里仍能用。
+#
+# 为什么要两种路径：路径里有空格与中文，直接拼 URL 会失效。
+# 所以给「打开」用的那一条做 URL 编码（空格 → %20），
+# 而「复制」用的那一条保持原始形态（粘进本机工具要用原始的）。
+# --------------------------------------------------------------------------- #
+PUBLISH_SUBDIR = "gallery"
+IIS_ROOT = pathlib.Path(r"C:\Users\ashsu\Documents\black")
+
+
+def _site_url(s: dict) -> str:
+    """发布后在站点里的相对 URL。
+
+    发布时把图**按分幕号重命名**（story/01-entrance.png → 01.png），
+    因为不同目录下有同名文件（story-edited/10a-unhook.png 与 story/10a-unhook.png），
+    按分幕号命名后 URL 干净、也不会互相覆盖。
+    分幕号里的字母统一小写（10A → 10a）。
+    """
+    if not s.get("img"):
+        return ""
+    no = s["no"].lower()
+    return f"{PUBLISH_SUBDIR}/{no}.png"
+
+
+def publish() -> int:
+    """把 gallery.html 与用到的图拷进 IIS 站点，图按分幕号重命名。"""
+    import shutil
+
+    dst_dir = IIS_ROOT / PUBLISH_SUBDIR
+    if not IIS_ROOT.exists():
+        print(f"!! 站点根不存在：{IIS_ROOT}")
+        return 2
+    dst_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"发布到 {dst_dir}")
+    copied = skipped = 0
+    for s in SCENES:
+        if not s.get("img"):
+            continue
+        src = REPO / s["img"]
+        if not src.exists():
+            print(f"  缺图 {s['no']}: {s['img']}")
+            continue
+        dst = dst_dir / f"{s['no'].lower()}.png"
+        if dst.exists() and dst.stat().st_size == src.stat().st_size:
+            skipped += 1
+            continue
+        shutil.copy2(src, dst)
+        copied += 1
+    print(f"  图：拷贝 {copied} / 已是最新 {skipped}")
+
+    html_dst = dst_dir / "index.html"
+    html_src = EXP / "gallery.html"
+    shutil.copy2(html_src, html_dst)
+    print(f"  页面：{html_dst.name}  ({html_dst.stat().st_size} 字节)")
+    print(f"\n  浏览地址： http://localhost/{PUBLISH_SUBDIR}/")
+    print(f"  （站点根开了目录浏览，也可以访问 http://localhost/{PUBLISH_SUBDIR}/ 看文件列表）")
+    return 0
+
+
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--publish", action="store_true", help="生成后拷进 IIS 站点")
+    a = ap.parse_args()
+
     p = EXP / "gallery.html"
     p.write_text(render(), encoding="utf-8")
     print(f"写出 {p}  ({p.stat().st_size} 字节)")
@@ -471,6 +550,10 @@ def main() -> int:
         print("  ⚠️ 以下分幕的图不存在：", ", ".join(miss))
     else:
         print("  所有引用的图都在磁盘上")
+
+    if a.publish:
+        print()
+        return publish()
     return 0
 
 
