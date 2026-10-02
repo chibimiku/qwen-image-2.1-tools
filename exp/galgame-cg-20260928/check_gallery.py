@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import sys
@@ -31,11 +32,43 @@ check("data:image" not in t, "没有 base64 内联图（这是「不嵌图」的
 check("<img" in t, "用 <img> 直接显示图")
 srcs = re.findall(r"<img\s+src='([^']+)'", t)
 check(len(srcs) >= 16, f"<img> 数量 {len(srcs)}")
-check(all(s.startswith("gallery/") for s in srcs),
-      "所有 img 的 src 都指向站点内相对 URL")
+check(all(not s.startswith("/") for s in srcs), "src 是相对路径（不是绝对路径）")
+check(all("/" not in s for s in srcs),
+      "src 是**裸文件名**，不带目录前缀",
+      f"带目录的：{[s for s in srcs if '/' in s]}" if any("/" in s for s in srcs) else "")
 check(all(s.endswith(".png") for s in srcs), "所有 src 都指向 .png")
 check("loading='lazy'" in t, "图片懒加载")
 check("alt=" in t, "有 alt 文本（可访问性）")
+
+print("\n=== 相对路径解析（浏览器视角）===")
+# 这一条是本轮的核心教训：src 的写法本身对，但**相对什么**很关键。
+# 页面在 /gallery/，src='gallery/01.png' 会解析成 /gallery/gallery/01.png → 404。
+# 我第一次测的是根路径 /gallery/01.png 所以没暴露。
+# 所以这里按**浏览器的方式**把 src 相对页面 URL 解析一次，再全部取一遍。
+import urllib.parse
+import urllib.request
+
+PAGE = os.environ.get("GALLERY_URL", "http://127.0.0.1/gallery/")
+resolved = [urllib.parse.urljoin(PAGE, s) for s in srcs]
+bad_prefix = [r for r in resolved if "/gallery/gallery/" in r]
+check(not bad_prefix, "没有出现重复目录（/gallery/gallery/…）",
+      f"重复：{bad_prefix[:2]}" if bad_prefix else "")
+
+try:
+    fails_http = []
+    for r in resolved:
+        req = urllib.request.Request(r, method="HEAD")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status != 200:
+                    fails_http.append((r, resp.status))
+        except Exception as exc:                                        # noqa: BLE001
+            code = getattr(exc, "code", "?")
+            fails_http.append((r, code))
+    check(not fails_http, f"浏览器视角下 {len(resolved)} 张图全部 HTTP 200",
+          f"失败：{fails_http[:3]}" if fails_http else "（站点在跑）")
+except Exception as exc:                                                # noqa: BLE001
+    print(f"  --   跳过 HTTP 检查（连不上 {PAGE}：{exc}）")
 
 print("\n=== HTML 完整性 ===")
 for tag in ("<html", "</html>", "<head>", "</head>", "<body>", "</body>",

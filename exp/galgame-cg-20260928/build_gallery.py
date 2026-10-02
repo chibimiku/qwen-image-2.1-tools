@@ -457,7 +457,8 @@ def render() -> str:
         #   「不嵌图」指的是这个 —— 不是"不显示图"。
         if s["img"]:
             ap = abspath(s["img"])
-            url = _site_url(s)
+            url = _site_url(s)          # 相对页面自身：`01.png`
+            sp = _site_path(s)          # 发布后的完整本机路径
             out.append("<figure class='imgbox'>")
             out.append(f"<a href='{html.escape(url)}' target='_blank' "
                        f"title='点开看原图（1600×896）'>"
@@ -468,8 +469,10 @@ def render() -> str:
                        "<button onclick='openImg(this)'>打开图片</button></figcaption>")
             out.append(f"<div class='hint'>相对仓库根：<code style='background:none;"
                        f"border:0;padding:0'>{html.escape(s['img'])}</code></div>")
+            out.append(f"<div class='hint'>发布副本：<code style='background:none;"
+                       f"border:0;padding:0'>{html.escape(sp)}</code></div>")
             out.append(f"<div class='hint'>网页地址：<code style='background:none;"
-                       f"border:0;padding:0'>{html.escape(url)}</code></div>")
+                       f"border:0;padding:0'>/gallery/{html.escape(url)}</code></div>")
             out.append(f"<div class='hint'>状态：{label}</div>")
             out.append("</figure>")
         else:
@@ -505,17 +508,27 @@ IIS_ROOT = pathlib.Path(r"C:\Users\ashsu\Documents\black")
 
 
 def _site_url(s: dict) -> str:
-    """发布后在站点里的相对 URL。
+    """发布后**相对于页面自身**的路径（用于 <img src>）。
 
-    发布时把图**按分幕号重命名**（story/01-entrance.png → 01.png），
-    因为不同目录下有同名文件（story-edited/10a-unhook.png 与 story/10a-unhook.png），
-    按分幕号命名后 URL 干净、也不会互相覆盖。
-    分幕号里的字母统一小写（10A → 10a）。
+    页面发布在 `<站点>/gallery/index.html`，图也拷在**同一个目录**里，
+    所以 src 就是裸文件名，**不能再带 gallery/ 前缀** ——
+    带上会解析成 `/gallery/gallery/01.png` → 404（踩过这个坑：
+    我测的是根路径 `/gallery/01.png`，所以没暴露）。
+
+    图之所以按分幕号重命名：不同目录下有同名文件
+    （`story-edited/10a-unhook.png` 与 `story/10a-unhook.png`），
+    按分幕号命名后不会互相覆盖，URL 也干净。
     """
     if not s.get("img"):
         return ""
-    no = s["no"].lower()
-    return f"{PUBLISH_SUBDIR}/{no}.png"
+    return f"{s['no'].lower()}.png"
+
+
+def _site_path(s: dict) -> str:
+    """发布后的**完整本机路径**（给人看、给人复制）。"""
+    if not s.get("img"):
+        return ""
+    return str(IIS_ROOT / PUBLISH_SUBDIR / f"{s['no'].lower()}.png")
 
 
 def publish() -> int:
