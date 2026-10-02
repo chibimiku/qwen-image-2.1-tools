@@ -77,12 +77,19 @@ exp/galgame-cg-20260928/out/*
 !exp/galgame-cg-20260928/check_story.py
 !exp/galgame-cg-20260928/gen_story.py
 !exp/galgame-cg-20260928/story_report.py
+!exp/galgame-cg-20260928/edit_story.py
+!exp/galgame-cg-20260928/edit_compare.py
 !exp/galgame-cg-20260928/story-gen-log.jsonl
+!exp/galgame-cg-20260928/edit-log.jsonl
 !exp/galgame-cg-20260928/sheets-story*.png
-# 故事 CG 成品图入库（按 STORY.md 清单出的那批）
+!exp/galgame-cg-20260928/zoom-11-compare.png
+# 故事 CG 成品图入库（按 STORY.md 清单出的那批 + edit 后的版本）
 !exp/galgame-cg-20260928/story/
 exp/galgame-cg-20260928/story/*
 !exp/galgame-cg-20260928/story/*.png
+!exp/galgame-cg-20260928/story-edited/
+exp/galgame-cg-20260928/story-edited/*
+!exp/galgame-cg-20260928/story-edited/*.png
 !exp/galgame-cg-20260928/autostart-verify.txt
 !exp/galgame-cg-20260928/run.py
 !exp/galgame-cg-20260928/verify.py
