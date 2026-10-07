@@ -25,6 +25,10 @@ import time
 
 import paramiko
 
+# 远端输出里多的是中文与进度符号，Windows 控制台默认 GBK 会打成乱码
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 HOST = os.environ.get("QWEN_HOST", "connect.westd.seetacloud.com")
 PORT = int(os.environ.get("QWEN_PORT", "26791"))
 USER = os.environ.get("QWEN_USER", "root")
