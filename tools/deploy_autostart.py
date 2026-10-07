@@ -40,6 +40,12 @@ import time
 
 import paramiko
 
+# 本脚本输出全是中文，Windows 控制台默认 GBK 会把 emoji/生僻字打成乱码，
+# 一旦重定向到文件更是灾难（排查时踩过）。统一按 UTF-8 走。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 TOOLS = pathlib.Path(__file__).resolve().parent
 ROOT = TOOLS.parent
 LOCAL = ROOT / "remote" / "autostart" / "qwen-autostart.sh"
