@@ -197,10 +197,22 @@ python tools/deploy_autostart.py          # 上传 + 语法检查 + 装引导 + 
 python tools/deploy_autostart.py --check  # 只看状态
 python tools/deploy_autostart.py --dry-run # 只上传+语法检查，不装引导
 python tools/deploy_autostart.py --host X --port Y   # 换目标实例
+python tools/_autostart_verify.py         # **重启后**验证自启（只读；会等 SSH 回来）
+python tools/_autostart_verify.py --no-wait   # 不等，立刻出结论
+python tools/_remote_exec.py "<命令>" --connect-wait 600   # 在实例上跑命令（可等重启）
 python tools/_autostart_e2e.py            # 端到端验证（会停一次服务，约 3 分钟）
 python tools/_svc_procs.py                # 精确看进程与显存占用
 python tools/_svc_watch_load.py 240       # 盯权重加载到 loaded=true
 ```
+
+**实例关机/重启之后**，第一件事跑 `tools/_autostart_verify.py`（只读，不改东西）。
+它会检查四件事并直接给结论：
+
+1. `/init/bin/customer.cmd.sh` 的引导行还在不在（**容器重建会按镜像还原 /init**，
+   这行丢了就没有容器启动触发了）
+2. `.bashrc` 退路是不是 `--quick` 版本
+3. `boot.log` 里重启后走了哪条分支
+4. 本机 `/health` 的 `status`/`loaded`，以及平台入口 8443 的 HTTP 码
 
 > **目标实例写在 `tools/deploy_autostart.py` 的 `DEFAULT_HOST` 里，别去读 env 文件。**
 > 这台机器上同时躺着两套过期配置：`tools/tunnel.conf` 指 westb:43611、

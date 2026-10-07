@@ -37,20 +37,43 @@ PASS = os.environ.get("QWEN_PASS", "xzkx5EgMwhvy")
 REMOTE_SCRIPT = "/root/_remote_exec.sh"
 
 
+def connect_with_retry(deadline_s: float):
+    """实例可能正在重启（SSH 直接拒连）——按退避重试到 deadline。"""
+    delay, attempt, errors = 2.0, 0, []
+    while True:
+        attempt += 1
+        try:
+            cli = paramiko.SSHClient()
+            cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            cli.connect(HOST, port=PORT, username=USER, password=PASS, timeout=15,
+                        banner_timeout=60, auth_timeout=60,
+                        look_for_keys=False, allow_agent=False)
+            print(f"[{HOST}:{PORT} 第 {attempt} 次尝试连上]", flush=True)
+            return cli
+        except Exception as e:
+            errors.append(f"{type(e).__name__}: {str(e)[:60]}")
+            if time.time() > deadline_s:
+                print(f"[连接失败] 共试 {attempt} 次：", flush=True)
+                for e in errors[-3:]:
+                    print("   ", e, flush=True)
+                print("实例可能已关机/仍在重启。确认实例开了之后重跑本命令即可。", flush=True)
+                raise SystemExit(2)
+            time.sleep(delay)
+            delay = min(delay * 1.6, 20.0)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("command", help="要在实例上执行的 shell 命令")
     ap.add_argument("budget", nargs="?", type=float, default=180.0,
-                    help="最长等待秒数（默认 180）")
+                    help="命令最长等待秒数（默认 180）")
+    ap.add_argument("--connect-wait", type=float, default=0.0,
+                    help="实例重启中时，最多等多少秒直到 SSH 可用（默认 0 = 只试一次）")
     a = ap.parse_args()
 
     t0 = time.time()
-    cli = paramiko.SSHClient()
-    cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    cli.connect(HOST, port=PORT, username=USER, password=PASS, timeout=30,
-                banner_timeout=120, auth_timeout=120,
-                look_for_keys=False, allow_agent=False)
-    print(f"[{HOST}:{PORT} 会话建立 {time.time() - t0:.1f}s]", flush=True)
+    cli = connect_with_retry(time.time() + a.connect_wait)
+    print(f"[会话建立 {time.time() - t0:.1f}s]", flush=True)
 
     sftp = paramiko.SFTPClient.from_transport(cli.get_transport())
     with sftp.open(REMOTE_SCRIPT, "w") as f:
