@@ -10,6 +10,7 @@
 #
 # 用法：
 #   bash /root/autodl-tmp/autostart/qwen-autostart.sh            # 正常自启（幂等）
+#   bash /root/autodl-tmp/autostart/qwen-autostart.sh --quick    # 只探一下 /health，绝不等
 #   bash /root/autodl-tmp/autostart/qwen-autostart.sh --status   # 只查状态
 #   bash /root/autodl-tmp/autostart/qwen-autostart.sh --install  # (重)装 /init 引导
 #
@@ -20,7 +21,13 @@
 #     把判断留给下一次触发，避免用一个 mock 进程占住端口。
 #   · **完全后台、不阻塞启动流程**：AutoDL 的 boot.sh 会顺序执行钩子，
 #     在这里前台等权重加载会把启动卡住十几分钟。
-#   · **幂等**：重复执行安全（按 pidfile + 端口双重判断）。
+#   · **--quick 不阻塞登录**：.bashrc 的退路触发用 --quick —— 服务活着就退出，
+#     没活着也立刻返回，把"起服务"交给 /init 钩子。实测踩过：登录 shell 触发
+#     全量流程，撞上宽限期，每条 ssh 都得等满 STARTUP_GRACE 秒才回话。
+#   · **pidfile 要验明正身**：光看 `kill -0 pid` 会被平台进程骗到 —— 实测踩过：
+#     pidfile 里留着 AutoDL autopanel 的 pid，autostart 每次都以为"服务正在起"，
+#     让路 180s 后退出，真正的 server.py 永远起不来，端口 404。
+#   · **幂等**：重复执行安全（按 pidfile + 进程身份 + 端口三重判断）。
 
 set -u
 
@@ -54,6 +61,24 @@ running() {
     alive
 }
 
+# ── pidfile 里的进程到底是不是"我们的服务" ────────────────────────────────
+#
+# `kill -0 $pid` 只说明**某个进程**占着这个 pid 号，跟 webui 没有任何关系：
+# pid 会被复用，平台上还有 autopanel 之类的常驻组件。实测踩到的坑 ——
+# pidfile 里写着 944，而 944 是 `autopanel serve`（它的 fd 里开着
+# /root/autodl-tmp/.autodl/autopanel.monitor.db）。autostart 只做 kill -0，
+# 于是每次触发都判成"服务正在起"，让路 180s 后退出，真正的 server.py
+# 一次都没被拉起来，6006 无人监听，平台入口一路 404。
+#
+# 所以认进程要看 cmdline。刻意不依赖 pgrep（busybox 镜像里可能没有），
+# 直接用 /proc。
+is_webui_pid() {
+    local p=${1:-}
+    [ -n "$p" ] || return 1
+    [ -r "/proc/$p/cmdline" ] || return 1
+    tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q 'service/server\.py'
+}
+
 status() {
     if running; then
         local pid=""
@@ -71,11 +96,27 @@ if [ "${1:-}" = "--status" ]; then
     exit 0
 fi
 
+# ── --quick：登录路径专用。绝不等待，只回答"现在能不能用" ─────────────────
+#
+# .bashrc 的退路落在登录路径上，任何等待都会被成倍放大：一条 ssh 一条等，
+# 自动化脚本、sftp、scp 全都跟着一起卡。所以这条路径只做一次 /health 探测：
+#   · 服务活着 → 直接退出（下面第一段 if 就会命中）
+#   · 服务没起 → 立刻退出，把启动留给 /init/bin/customer.cmd.sh 的钩子
+# 想真正把服务拉起来，用不带参数的全量模式（或者等 /init 钩子）。
+QUICK_MODE=0
+if [ "${1:-}" = "--quick" ]; then
+    QUICK_MODE=1
+fi
+
 # ── --install：把引导行贴回 /init/bin/customer.cmd.sh（容器重建后需要重贴）──
 if [ "${1:-}" = "--install" ]; then
     TARGET=/init/bin/customer.cmd.sh
     MARK="qwen-autostart"
+    # /init 钩子跑在容器启动路径上，这里允许全量流程（等 GPU、等宽限期都无所谓）
     LINE="bash /root/autodl-tmp/autostart/qwen-autostart.sh >/dev/null 2>&1   # $MARK"
+    # 登录退路跑在**每次 ssh/sftp/scp 的会话路径**上，必须 --quick：
+    # 全量流程会在这里等满 STARTUP_GRACE 秒，把每条连接都拖住（实测 181s/条）
+    LINE_BR="bash /root/autodl-tmp/autostart/qwen-autostart.sh --quick >/dev/null 2>&1   # $MARK"
 
     # 主链路：AutoDL 官方钩子
     if [ ! -e "$TARGET" ]; then
@@ -94,7 +135,14 @@ if [ "${1:-}" = "--install" ]; then
     BR=/root/.bashrc
     if [ -f "$BR" ]; then
         if grep -q "$MARK" "$BR" 2>/dev/null; then
-            # 已经贴过，但要确认它不在提前 return 之后
+            # 升级旧版退路：旧行是 `...qwen-autostart.sh >/dev/null 2>&1`（缺 --quick），
+            # 会把每条登录连接拖满宽限期。改成 --quick 版本。
+            if grep -qE '^bash /root/autodl-tmp/autostart/qwen-autostart\.sh >/dev/null' "$BR"; then
+                cp -a "$BR" "$BR.bak.$(date +%s)"
+                sed -i 's#^bash /root/autodl-tmp/autostart/qwen-autostart\.sh >/dev/null#bash /root/autodl-tmp/autostart/qwen-autostart.sh --quick >/dev/null#' "$BR"
+                echo "已把 $BR 里的旧退路升级为 --quick"
+            fi
+            # 位置检查：必须落在提前 return 之前
             first=$(grep -n "$MARK" "$BR" | head -1 | cut -d: -f1)
             guard=$(grep -n 'PS1' "$BR" | head -1 | cut -d: -f1)
             if [ -n "$first" ] && [ -n "$guard" ] && [ "$first" -gt "$guard" ]; then
@@ -108,12 +156,12 @@ if [ "${1:-}" = "--install" ]; then
             cp -a "$BR" "$BR.bak.$(date +%s)"
             tmp=$(mktemp)
             {
-                printf '# --- %s（退路：任何 shell 都触发一次，脚本内部幂等）---\n' "$MARK"
-                printf '%s\n' "$LINE"
+                printf '# --- %s（退路：任何 shell 都触发一次，--quick 不阻塞登录）---\n' "$MARK"
+                printf '%s\n' "$LINE_BR"
                 printf '# --- end %s ---\n\n' "$MARK"
                 cat "$BR"
             } > "$tmp" && mv "$tmp" "$BR"
-            echo "已把退路插到 $BR 开头（在 '[ -z \$PS1 ] && return' 之前）"
+            echo "已把退路插到 $BR 开头（在 '[ -z \$PS1 ] && return' 之前，带 --quick）"
         else
             echo "退路已存在且位置正确：$BR"
         fi
@@ -130,19 +178,26 @@ fi
 # ── 主流程 ────────────────────────────────────────────────────────────────
 #
 # 判断链（顺序不能换）：
-#   1. /health 是 ok 的        → 有人在正常服务，直接退出，绝不抢
-#   2. pidfile 里的进程还在    → 大概率正在加载权重（要十几秒），
-#                                给它 STARTUP_GRACE 秒；就绪了就退出，
-#                                到期仍不就绪也不动它（宁可少起，不可起两个抢显存）
-#   3. pidfile 是陈旧的        → 清掉，往下走启动
+#   1. /health 是 ok 的               → 有人在正常服务，直接退出，绝不抢
+#   2. pidfile 里的进程**是我们的服务** → 大概率正在加载权重（要十几秒），
+#                                       给它 STARTUP_GRACE 秒；就绪了就退出，
+#                                       到期仍不就绪也不动它（宁可少起，不可起两个抢显存）
+#   3. pidfile 是陈旧的/张冠李戴的     → 清掉，往下走启动
 #
 # 第 2 步是必须的：服务从启动到 /health 200 要十几秒，这期间 alive() 是 false。
 # 少了这步，任何一次并发触发都会把**正在加载权重的实例挤掉**，pidfile 指向新进程、
 # 旧进程变孤儿 —— 实测跑出过 5285→5647 的换进程，就是这么来的。
+# 但第 2 步认进程必须看 cmdline（is_webui_pid），只看 pid 号活着会被平台进程骗到。
 log "=== autostart 触发 (args: ${*:-none}) ==="
 
 if running; then
     log "已有实例在跑，跳过（不抢占）"
+    exit 0
+fi
+
+# --quick：登录路径。已经确认 /health 不是 ok，直接走人，绝不在这里等宽限期。
+if [ "$QUICK_MODE" = 1 ]; then
+    log "--quick：/health 未就绪，直接返回（启动交给 /init 钩子，登录不等）"
     exit 0
 fi
 
@@ -153,28 +208,33 @@ fi
 
 if [ -f "$PIDF" ]; then
     _pid=$(cat "$PIDF" 2>/dev/null)
-    if kill -0 "$_pid" 2>/dev/null; then
-        log "pidfile 指向 pid=$_pid 且进程存在 —— 给 ${STARTUP_GRACE}s 宽限期"
+    if is_webui_pid "$_pid"; then
+        log "pidfile 指向 pid=$_pid（已确认是我们的 server.py）—— 给 ${STARTUP_GRACE}s 宽限期"
         _g=0
         while [ "$_g" -lt "$STARTUP_GRACE" ]; do
             if alive; then
                 log "宽限期内服务已就绪（等了 ${_g}s），退出（不重复拉）"
                 exit 0
             fi
-            if ! kill -0 "$_pid" 2>/dev/null; then
+            if ! is_webui_pid "$_pid"; then
                 log "宽限期内 pid=$_pid 已退出"
                 break
             fi
             sleep 5
             _g=$((_g + 5))
         done
-        if kill -0 "$_pid" 2>/dev/null; then
+        if is_webui_pid "$_pid"; then
             log "宽限期 ${STARTUP_GRACE}s 结束，pid=$_pid 仍在但 /health 未就绪"
             log "不动它（无卡模式或加载异常都交给人来判断，绝不起第二个实例抢显存）"
             exit 0
         fi
+    elif kill -0 "$_pid" 2>/dev/null; then
+        # pid 还有人占，但不是我们的服务 —— 也就是平台自己的常驻组件
+        # （autopanel 这类）。这个 pidfile 是张冠李戴，不能因为"pid 活着"就让路。
+        _who=$(tr '\0' ' ' < "/proc/$_pid/cmdline" 2>/dev/null | cut -c1-80)
+        log "pidfile 指向 pid=$_pid，但它不是我们的服务（cmdline: ${_who:-未知}）—— 按陈旧处理"
     fi
-    log "清理陈旧 pidfile（pid=${_pid:-?} 已不存在）"
+    log "清理陈旧 pidfile（pid=${_pid:-?} 不是存活的 server.py）"
     rm -f "$PIDF"
 fi
 

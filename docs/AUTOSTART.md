@@ -44,7 +44,7 @@
             └─ /root/qwen-image-2.1/scripts/serve.sh start
 
 退路（任何 shell 都触发一次，脚本内部幂等）
-  └─ /root/.bashrc 里的一行
+  └─ /root/.bashrc 里的一行（**带 `--quick`**，见第七节坑 5）
 ```
 
 挂上之后 `customer.cmd.sh` 的尾部就是：
@@ -54,21 +54,35 @@
 bash /root/autodl-tmp/autostart/qwen-autostart.sh >/dev/null 2>&1   # qwen-autostart
 ```
 
+而 `.bashrc` 头部是：
+
+```bash
+# --- qwen-autostart（退路：任何 shell 都触发一次，--quick 不阻塞登录）---
+bash /root/autodl-tmp/autostart/qwen-autostart.sh --quick >/dev/null 2>&1   # qwen-autostart
+# --- end qwen-autostart ---
+```
+
+两条链路的参数**故意不同**：`/init` 钩子跑在容器启动路径上，可以等（等 GPU、
+等权重加载）；`.bashrc` 退路跑在**每条 ssh/sftp/scp 的会话路径**上，必须 `--quick`
+立刻返回，否则每一条连接都要陪着等满宽限期（见第七节坑 5、坑 6）。
+
 ---
 
 ## 三、判断链（顺序不能换）
 
 ```
-1. /health 返回 ok            → 有人在正常服务，直接退出，绝不抢
-2. pidfile 指向的进程还在     → 大概率正在加载权重（要十几秒）
-                                给它 180s 宽限期；就绪就退出；
-                                到期仍不就绪也**不动它**（宁可少起，不可起两个抢显存）
-3. pidfile 是陈旧的           → 清掉，往下走
-4. houseclean：清残留进程 + 等显存真正释放
-5. serve.sh start
+1. /health 返回 ok                → 有人在正常服务，直接退出，绝不抢
+2. --quick？是 → 立刻退出         → 登录路径不等，启动交给 /init 钩子
+3. pidfile 指向的进程**是我们的 server.py**（cmdline 校验）
+                                  → 大概率正在加载权重（要十几秒）
+                                    给它 180s 宽限期；就绪就退出；
+                                    到期仍不就绪也**不动它**（宁可少起，不可起两个抢显存）
+4. pidfile 陈旧 / 张冠李戴         → 清掉，往下走
+5. houseclean：清残留进程 + 等显存真正释放
+6. serve.sh start
 ```
 
-第 2、4 步都是**踩出来的**，不是设计时想到的，见下一节。
+第 3、5 步都是**踩出来的**，不是设计时想到的，见下一节。
 
 ---
 
@@ -112,6 +126,52 @@ ERROR: [Errno 98] error while attempting to bind on address ('0.0.0.0', 6006): a
 另外：**这个镜像没有 `ss`，也没有 `netstat`**，要看监听端口得读 `/proc/net/tcp`
 （6006 = `0x1776`，状态 `0A` = LISTEN）。
 
+### 5. 只看 `kill -0 pid` → 平台进程冒充服务，自启静默失效（10-07 事故）
+
+现象：平台入口一路 404，`/health` 连不上，但 autostart 每 3 分钟准时报到一次
+"给宽限期"、"不动它"，从不拉起服务。
+
+```
+[19:01:09] pidfile 指向 pid=944 且进程存在 —— 给 180s 宽限期
+[19:04:09] 宽限期 180s 结束，pid=944 仍在但 /health 未就绪
+[19:04:09] 不动它（无卡模式或加载异常都交给人来判断，绝不起第二个实例抢显存）
+```
+
+根因：pidfile 里写着 `944`，而 944 **不是** webui —— 它是 AutoDL 自己的
+`autopanel serve`：
+
+```
+$ tr '\0' ' ' < /proc/944/cmdline
+autopanel serve --work-dir=/root/autodl-tmp --cache-dir=/root/autodl-tmp
+$ ls -l /proc/944/fd
+6 -> /root/autodl-tmp/.autodl/autopanel.monitor.db
+```
+
+`kill -0 944` 当然成功（那是个活得好好的平台进程），于是脚本每次都认定"服务正在起"，
+让路 180 秒后退出，真正的 `server.py` **一次都没被拉起来过**。pid 号是会被复用的，
+"这个 pid 活着"和"我们的服务活着"是两件事。
+
+→ 认进程看 `cmdline`（`is_webui_pid()`，直接读 `/proc/<pid>/cmdline`，不依赖
+`pgrep`——这个镜像里连 `ss` 都没有，别赌别的工具在）。pid 活着但不是 `server.py`
+就按陈旧 pidfile 处理：清理、往下走、把服务起起来。
+
+### 6. 把全量自启挂在 `.bashrc` 上 → 每条 ssh 都要等满宽限期
+
+现象：任何一次 ssh/sftp/cp 连接，**命令与回显之间固定卡 181 秒**，且过期会话
+一次性吐全部输出，看起来像"远端极慢"或"网络抖动"。`boot.log` 里能对上时间：
+
+```
+[19:13:26] === autostart 触发 (args: none) ===     ← 我这条 ssh 建会话的时刻
+[19:13:26] pidfile 指向 pid=944 且进程存在 —— 给 180s 宽限期
+[19:14:11] 宽限期 180s 结束
+```
+
+`.bashrc` 的退路是**登录 shell 路径**，会同步执行整个判断链；只要 pidfile 那步要等，
+每条连接就陪着等。而 ssh 一把把开新会话（自动化脚本、sftp、scp 都是），代价成倍放大。
+
+→ 退路一律带 `--quick`：`/health` ok 就退出，不 ok 也立刻返回，启动只交给
+`/init` 钩子。修完实测：会话建立 + 执行整条部署 **5.6 秒**（原先光等就是 181 秒）。
+
 ---
 
 ## 五、日常用法
@@ -119,6 +179,9 @@ ERROR: [Errno 98] error while attempting to bind on address ('0.0.0.0', 6006): a
 ```bash
 # 看状态（自启脚本视角）
 bash /root/autodl-tmp/autostart/qwen-autostart.sh --status
+
+# 只探一下（登录路径用的就是它，绝不等待）
+bash /root/autodl-tmp/autostart/qwen-autostart.sh --quick
 
 # 重贴引导（容器重建、或换了新容器之后）
 bash /root/autodl-tmp/autostart/qwen-autostart.sh --install
@@ -132,10 +195,22 @@ tail -20 /root/autodl-tmp/autostart/boot.log
 ```bash
 python tools/deploy_autostart.py          # 上传 + 语法检查 + 装引导 + 状态
 python tools/deploy_autostart.py --check  # 只看状态
+python tools/deploy_autostart.py --dry-run # 只上传+语法检查，不装引导
+python tools/deploy_autostart.py --host X --port Y   # 换目标实例
 python tools/_autostart_e2e.py            # 端到端验证（会停一次服务，约 3 分钟）
 python tools/_svc_procs.py                # 精确看进程与显存占用
 python tools/_svc_watch_load.py 240       # 盯权重加载到 loaded=true
 ```
+
+> **目标实例写在 `tools/deploy_autostart.py` 的 `DEFAULT_HOST` 里，别去读 env 文件。**
+> 这台机器上同时躺着两套过期配置：`tools/tunnel.conf` 指 westb:43611、
+> `tools/autodl_new.env` 指 westc:17045，两个实例都早没了。按 env 部署会打到空地址。
+>
+> **改了脚本一定要走这个部署器，别只改远端。** 远端 `/root/autodl-tmp/autostart/`
+> 是持久盘（跨容器重建保留），`git` 里的 `remote/autostart/qwen-autostart.sh` 才是真源；
+> 只改远端 → 下次别人部署就回退，只改本地 → 当前实例没生效。
+> 部署器还会顺带 `--install` 重贴 `/init` 钩子和 `.bashrc` 退路，这两处一漏，
+> 容器一重建就又没有自启了。
 
 ### 可调的环境变量
 
@@ -152,6 +227,8 @@ python tools/_svc_watch_load.py 240       # 盯权重加载到 loaded=true
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | 重启后服务没起来 | 引导行被容器重建冲掉了 | `--install` 重贴；看 `boot.log` 有没有触发记录 |
+| **入口 404，但 boot.log 一直"给宽限期/不动它"** | **pidfile 指向平台进程（autopanel 等），不是 server.py** | **新版脚本已能识破；老版本删掉 `service.pid` 再触发一次** |
+| **每条 ssh/sftp 都卡 3 分钟才回话** | **`.bashrc` 退路跑的是全量流程，在等宽限期** | **退路加 `--quick`（`--install` 会自动升级）** |
 | `health` 是 ok 但不出图 | 权重没加载完，或加载失败 | **看 `loaded` 字段**，失败原因写在 `load_error` 里 |
 | 日志有 `address already in use` | 旧实例还在退出中 | 跑一次自启脚本（它会 houseclean），或 `_svc_procs.py` 看谁占着 |
 | 日志有 `OutOfMemoryError` | 有孤儿进程占显存 | `_svc_procs.py` 确认，`pkill -f 'service/server\.py'` 后重起 |
@@ -173,3 +250,31 @@ python tools/_svc_watch_load.py 240       # 盯权重加载到 loaded=true
 - 幂等：就绪状态下重复触发不换进程、6006 只有一个 LISTEN、GPU 上只有一个服务进程
 - 陈旧 pidfile：伪造死 pid 后能识破并正常拉起
 - 收尾：`loaded:true`、无 `load_error`、真实模式、公网入口 200
+
+### 10-07 补测（坑 5 / 坑 6 两个修复）
+
+**会话耗时**（坑 6）：修复前每条 ssh/sftp/scp 固定拖到 ~181 秒，修复后同一套操作：
+
+```
+[会话建立 0.2s]              ← 修复前是 181.4s
+python tools/deploy_autostart.py  全程 5.6s（上传+语法检查+替换+状态）
+```
+
+**进程身份校验**（坑 5）：伪造 `service.pid` 指向 autopanel 的 pid（复现事故现场），
+再跑全量触发：
+
+```
+### C. pidfile 现在 = 907  cmdline: autopanel serve --work-dir=/root/autodl-tmp ...
+### D. --quick        → 耗时 0s（修复前会被拖满 180s）
+### E. 全量触发        → 耗时 0s
+    [19:20:02] pidfile 指向 pid=907，但它不是我们的服务（cmdline: autopanel serve ...）—— 按陈旧处理
+    [19:20:02] 清理陈旧 pidfile（pid=907 不是存活的 server.py）
+    [19:20:02] GPU 就绪（等了 0s）→ serve.sh start → started pid=8939
+### F. health OK 约 20s；pidfile 现在 = 8939，cmdline 是 python .../service/server.py
+### H. loaded=true / mock=false
+```
+
+**引导落位**：`--install` 后 `grep -c qwen-autostart` →
+`/init/bin/customer.cmd.sh:2`、`/root/.bashrc:3`，且 `.bashrc` 里是 `--quick` 版本。<br>
+（注：首次部署时 `/init` 侧是 0 —— 钩子从来没贴过，全靠 `.bashrc` 退路在扛；
+`tools/deploy_autostart.py` 现在每次都会顺手 `--install`，不会再漏。）
